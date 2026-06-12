@@ -7,9 +7,14 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Plus, Trash2, ShieldCheck } from "lucide-react";
+import { useEffect, useState } from "react";
 import type { GateRule, GateCondition, GateConsequence, KpiItem, GateOperator, AudienceV2State } from "../builderState";
 import { uid } from "../builderState";
 import { AudienceContextChip } from "../AudienceContextChip";
+import {
+  fetchMetricGroups, fetchConsequenceOptions,
+  type MetricGroups, type ConsequenceOptions, type ConsequenceOption,
+} from "@/lib/saleshubApi";
 
 interface Props {
   value: GateRule[];
@@ -17,61 +22,6 @@ interface Props {
   kpis: KpiItem[];
   audience?: AudienceV2State;
 }
-
-const METRIC_GROUPS = {
-  attendance: [
-    "Attendance %",
-    "Absent days",
-    "Present days",
-    "Working days",
-    "Consecutive absent days",
-    "Leave without approval",
-  ],
-  collection: [
-    "Collection % of billing",
-    "Overdue amount (₹)",
-    "Overdue > 30 days %",
-    "Overdue > 60 days %",
-    "Overdue > 90 days %",
-    "Avg. credit days",
-    "Cheque bounce count",
-  ],
-  productivity: [
-    "Visits per day (PCC)",
-    "Beat plan adherence %",
-    "Productive call %",
-    "Visit strike rate %",
-    "App login days",
-    "Calls made",
-    "Orders booked per day",
-    "Drop size (₹/order)",
-  ],
-  compliance: [
-    "GPS / geo-tag compliance %",
-    "DAR / daily report submission %",
-    "Order punching SLA %",
-    "Photo capture compliance %",
-    "Planogram compliance %",
-    "Training module completion %",
-    "Selfie / attendance photo compliance %",
-  ],
-  distribution: [
-    "ECO — Effective coverage outlets",
-    "New outlets added",
-    "Outlet retention %",
-    "ULPO — Unique lines per outlet",
-    "Range selling %",
-    "Must-sell SKU strike rate %",
-    "Focus SKU / NPD billing",
-  ],
-  sales_hygiene: [
-    "Sales return %",
-    "Damaged / expired stock %",
-    "Scheme / claim accuracy %",
-    "Primary vs secondary variance %",
-    "Stock-out days",
-  ],
-};
 
 const OPERATORS: { id: GateOperator; label: string }[] = [
   { id: "lt", label: "is less than" },
@@ -98,6 +48,20 @@ export function GateRulesStep({ value, onChange, kpis, audience }: Props) {
     onChange(value.map((g) => (g.id === id ? { ...g, ...patch } : g)));
   };
   const removeGate = (id: string) => onChange(value.filter((g) => g.id !== id));
+
+  // Metric groups for the condition picker come from config (fetched once and
+  // cached in saleshubApi). Falls back to the bundled dummy config until the
+  // real config API is live.
+  const [metricGroups, setMetricGroups] = useState<MetricGroups>({});
+  const [consequenceOptions, setConsequenceOptions] = useState<ConsequenceOptions>([]);
+  useEffect(() => {
+    fetchMetricGroups()
+      .then(setMetricGroups)
+      .catch(() => setMetricGroups({}));
+    fetchConsequenceOptions()
+      .then(setConsequenceOptions)
+      .catch(() => setConsequenceOptions([]));
+  }, []);
 
   return (
     <div className="animate-fade-in space-y-4 max-w-4xl">
@@ -126,7 +90,7 @@ export function GateRulesStep({ value, onChange, kpis, audience }: Props) {
       )}
 
       {value.map((gate) => (
-        <GateCard key={gate.id} gate={gate} kpis={kpis} onUpdate={(p) => updateGate(gate.id, p)} onRemove={() => removeGate(gate.id)} />
+        <GateCard key={gate.id} gate={gate} kpis={kpis} metricGroups={metricGroups} consequenceOptions={consequenceOptions} onUpdate={(p) => updateGate(gate.id, p)} onRemove={() => removeGate(gate.id)} />
       ))}
 
       <Button variant="outline" onClick={addGate} className="gap-1">
@@ -137,8 +101,8 @@ export function GateRulesStep({ value, onChange, kpis, audience }: Props) {
 }
 
 function GateCard({
-  gate, kpis, onUpdate, onRemove,
-}: { gate: GateRule; kpis: KpiItem[]; onUpdate: (p: Partial<GateRule>) => void; onRemove: () => void }) {
+  gate, kpis, metricGroups, consequenceOptions, onUpdate, onRemove,
+}: { gate: GateRule; kpis: KpiItem[]; metricGroups: MetricGroups; consequenceOptions: ConsequenceOptions; onUpdate: (p: Partial<GateRule>) => void; onRemove: () => void }) {
   const updateCondition = (i: number, patch: Partial<GateCondition>) => {
     const next = [...gate.conditions];
     next[i] = { ...next[i], ...patch };
@@ -187,7 +151,7 @@ function GateCard({
                       {kpis.map((k) => <SelectItem key={k.id} value={`kpi::${k.id}`}>{k.displayName}</SelectItem>)}
                     </>
                   )}
-                  {Object.entries(METRIC_GROUPS).map(([group, items]) => (
+                  {Object.entries(metricGroups).map(([group, items]) => (
                     <div key={group}>
                       <div className="text-[10px] uppercase text-muted-foreground px-2 py-1">{group}</div>
                       {items.map((m) => <SelectItem key={`${group}-${m}`} value={`${group}::${m}`}>{m}</SelectItem>)}
@@ -248,75 +212,51 @@ function GateCard({
         <Label className="text-xs uppercase text-muted-foreground font-semibold">Consequence</Label>
         <RadioGroup
           value={gate.consequence.kind}
-          onValueChange={(v) => {
-            if (v === "zero-all") onUpdate({ consequence: { kind: "zero-all" } });
-            else if (v === "zero-kpis") onUpdate({ consequence: { kind: "zero-kpis", kpiIds: [] } });
-            else if (v === "reduce") onUpdate({ consequence: { kind: "reduce", percent: 50, scope: "all" } });
-            else onUpdate({ consequence: { kind: "custom", text: "" } });
-          }}
+          onValueChange={(v) => onUpdate({ consequence: defaultConsequence(v as ConsequenceOption["kind"], gate.consequence) })}
           className="space-y-1.5"
         >
-          <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <RadioGroupItem value="zero-all" /> Rep earns ₹0 for this entire programme
-          </label>
-          <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <RadioGroupItem value="zero-kpis" /> Rep earns ₹0 for specific KPIs
-          </label>
-          {gate.consequence.kind === "zero-kpis" && (
-            <div className="pl-6 flex flex-wrap gap-1.5">
-              {kpis.map((k) => {
-                const ids = gate.consequence.kind === "zero-kpis" ? gate.consequence.kpiIds : [];
-                const active = ids.includes(k.id);
-                return (
-                  <button
-                    key={k.id}
-                    onClick={() => onUpdate({
-                      consequence: {
-                        kind: "zero-kpis",
-                        kpiIds: active ? ids.filter((x) => x !== k.id) : [...ids, k.id],
-                      },
-                    })}
-                    className={`text-xs px-2 py-1 rounded-md border ${active ? "bg-primary text-primary-foreground border-primary" : "hover:bg-muted"}`}
-                  >
-                    {k.displayName}
-                  </button>
-                );
-              })}
+          {consequenceOptions.map((opt) => (
+            <div key={opt.kind} className="space-y-1.5">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <RadioGroupItem value={opt.kind} />
+                {opt.kind === "reduce"
+                  ? renderReduceLabel(opt.label, gate, onUpdate, kpis)
+                  : opt.label}
+              </label>
+
+              {opt.kind === "zero-kpis" && gate.consequence.kind === "zero-kpis" && (
+                <div className="pl-6 flex flex-wrap gap-1.5">
+                  {kpis.map((k) => {
+                    const ids = gate.consequence.kind === "zero-kpis" ? gate.consequence.kpiIds : [];
+                    const active = ids.includes(k.id);
+                    return (
+                      <button
+                        key={k.id}
+                        onClick={() => onUpdate({
+                          consequence: {
+                            kind: "zero-kpis",
+                            kpiIds: active ? ids.filter((x) => x !== k.id) : [...ids, k.id],
+                          },
+                        })}
+                        className={`text-xs px-2 py-1 rounded-md border ${active ? "bg-primary text-primary-foreground border-primary" : "hover:bg-muted"}`}
+                      >
+                        {k.displayName}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {opt.kind === "custom" && gate.consequence.kind === "custom" && (
+                <Input
+                  value={gate.consequence.text}
+                  onChange={(e) => onUpdate({ consequence: { kind: "custom", text: e.target.value } })}
+                  placeholder="Describe the consequence…"
+                  className="h-8 text-xs ml-6"
+                />
+              )}
             </div>
-          )}
-          <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <RadioGroupItem value="reduce" /> Rep earns only
-            <Input
-              type="number"
-              disabled={gate.consequence.kind !== "reduce"}
-              value={gate.consequence.kind === "reduce" ? gate.consequence.percent : 50}
-              onChange={(e) => onUpdate({ consequence: { kind: "reduce", percent: Number(e.target.value), scope: gate.consequence.kind === "reduce" ? gate.consequence.scope : "all" } })}
-              className="h-7 w-16 text-xs inline-block"
-            />
-            % of payout for
-            <Select
-              disabled={gate.consequence.kind !== "reduce"}
-              value={gate.consequence.kind === "reduce" ? gate.consequence.scope : "all"}
-              onValueChange={(v) => onUpdate({ consequence: { kind: "reduce", percent: gate.consequence.kind === "reduce" ? gate.consequence.percent : 50, scope: v } })}
-            >
-              <SelectTrigger className="h-7 w-32 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">all KPIs</SelectItem>
-                {kpis.map((k) => <SelectItem key={k.id} value={k.id}>{k.displayName}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </label>
-          <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <RadioGroupItem value="custom" /> Custom description
-          </label>
-          {gate.consequence.kind === "custom" && (
-            <Input
-              value={gate.consequence.text}
-              onChange={(e) => onUpdate({ consequence: { kind: "custom", text: e.target.value } })}
-              placeholder="Describe the consequence…"
-              className="h-8 text-xs ml-6"
-            />
-          )}
+          ))}
         </RadioGroup>
       </div>
 
@@ -333,6 +273,66 @@ function GateCard({
       </div>
     </Card>
   );
+}
+
+// Build a default consequence object for a freshly-selected kind, preserving
+// the previous values where the kind is unchanged.
+function defaultConsequence(kind: ConsequenceOption["kind"], prev: GateConsequence): GateConsequence {
+  switch (kind) {
+    case "zero-all": return { kind: "zero-all" };
+    case "zero-kpis": return { kind: "zero-kpis", kpiIds: prev.kind === "zero-kpis" ? prev.kpiIds : [] };
+    case "reduce": return {
+      kind: "reduce",
+      percent: prev.kind === "reduce" ? prev.percent : 50,
+      scope: prev.kind === "reduce" ? prev.scope : "all",
+    };
+    case "custom": return { kind: "custom", text: prev.kind === "custom" ? prev.text : "" };
+  }
+}
+
+// Render the "reduce" option label, splicing the percent input and scope select
+// into the config-driven label at its {percent} / {scope} tokens.
+function renderReduceLabel(
+  label: string,
+  gate: GateRule,
+  onUpdate: (p: Partial<GateRule>) => void,
+  kpis: KpiItem[]
+) {
+  const isReduce = gate.consequence.kind === "reduce";
+  const percent = gate.consequence.kind === "reduce" ? gate.consequence.percent : 50;
+  const scope = gate.consequence.kind === "reduce" ? gate.consequence.scope : "all";
+
+  return label.split(/(\{percent\}|\{scope\})/).map((part, i) => {
+    if (part === "{percent}") {
+      return (
+        <Input
+          key={i}
+          type="number"
+          disabled={!isReduce}
+          value={percent}
+          onChange={(e) => onUpdate({ consequence: { kind: "reduce", percent: Number(e.target.value), scope } })}
+          className="h-7 w-16 text-xs inline-block"
+        />
+      );
+    }
+    if (part === "{scope}") {
+      return (
+        <Select
+          key={i}
+          disabled={!isReduce}
+          value={scope}
+          onValueChange={(v) => onUpdate({ consequence: { kind: "reduce", percent, scope: v } })}
+        >
+          <SelectTrigger className="h-7 w-32 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">all KPIs</SelectItem>
+            {kpis.map((k) => <SelectItem key={k.id} value={k.id}>{k.displayName}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      );
+    }
+    return part ? <span key={i}>{part}</span> : null;
+  });
 }
 
 function kpiName(c: GateCondition, kpis: KpiItem[]) {
