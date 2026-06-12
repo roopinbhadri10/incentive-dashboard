@@ -5,10 +5,10 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronDown, Info, X, Database, ChevronRight, Check } from "lucide-react";
-import { useState } from "react";
+import { ChevronDown, Info, X, Database, ChevronRight, Check, Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
 import type { AudienceV2State, Channel } from "../builderState";
-import { PROGRAM_ROLES } from "../builderState";
+import { fetchRoleNames } from "@/lib/saleshubApi";
 
 interface Props {
   value: AudienceV2State;
@@ -268,6 +268,17 @@ function CascadingGeoPicker({
 }
 
 export function AudienceV2Step({ value, onChange }: Props) {
+  const [roles, setRoles] = useState<string[]>([]);
+  const [rolesLoading, setRolesLoading] = useState(true);
+  const [rolesError, setRolesError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchRoleNames()
+      .then(setRoles)
+      .catch((e: Error) => setRolesError(e.message))
+      .finally(() => setRolesLoading(false));
+  }, []);
+
   const setDivision = (c: Channel) => onChange({ ...value, division: c });
 
   const setRole = (r: string) => onChange({ ...value, roles: r ? [r] : [] });
@@ -347,16 +358,26 @@ export function AudienceV2Step({ value, onChange }: Props) {
       {/* Role */}
       <Card className="p-5 space-y-3">
         <Label className="text-sm font-medium">Role</Label>
-        <Select value={selectedRole} onValueChange={setRole}>
+        <Select value={selectedRole} onValueChange={setRole} disabled={rolesLoading}>
           <SelectTrigger>
-            <SelectValue placeholder="Select a role from master data" />
+            {rolesLoading ? (
+              <span className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 size={13} className="animate-spin" /> Loading roles…
+              </span>
+            ) : (
+              <SelectValue placeholder="Select a role from master data" />
+            )}
           </SelectTrigger>
           <SelectContent>
-            {PROGRAM_ROLES.map((r) => (
-              <SelectItem key={r} value={r}>
-                {r}
-              </SelectItem>
-            ))}
+            {rolesError ? (
+              <div className="px-2 py-2 text-xs text-destructive">{rolesError}</div>
+            ) : (
+              roles.map((r) => (
+                <SelectItem key={r} value={r}>
+                  {r}
+                </SelectItem>
+              ))
+            )}
           </SelectContent>
         </Select>
         <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">

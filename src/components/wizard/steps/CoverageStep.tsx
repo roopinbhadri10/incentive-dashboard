@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { fetchChannelNames } from "@/lib/saleshubApi";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,7 +18,7 @@ const aiSuggestions = [
   { label: "South region reps with declining visit frequency", icon: <Zap size={14} />, reps: 15 },
 ];
 
-function CustomCoverageBuilder() {
+function CustomCoverageBuilder({ channels }: { channels: string[] }) {
   const [prompt, setPrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedResult, setGeneratedResult] = useState<{
@@ -106,7 +107,7 @@ function CustomCoverageBuilder() {
           {[
             { name: "Region", options: ["North", "South", "East", "West"] },
             { name: "Territory", options: ["Delhi NCR", "Mumbai Metro", "Bangalore Urban", "Punjab"] },
-            { name: "Channel", options: ["General Trade", "Modern Trade", "Horeca", "E-Commerce"] },
+            { name: "Channel", options: channels },
             { name: "Performance Tier", options: ["Top 20%", "Mid-tier (40-70%)", "Bottom 30%"] },
           ].map((filter) => (
             <div key={filter.name}>
@@ -165,6 +166,13 @@ export function CoverageStep() {
   const [selectedRegions, setSelectedRegions] = useState<string[]>(["North"]);
   const [selectedReps, setSelectedReps] = useState<string[]>(["sr1", "sr5"]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [channels, setChannels] = useState<string[]>(["General Trade", "Modern Trade", "Horeca", "E-Commerce"]);
+
+  useEffect(() => {
+    fetchChannelNames()
+      .then((names) => { if (names.length > 0) setChannels(names); })
+      .catch(() => { /* keep defaults */ });
+  }, []);
 
   const filteredReps = mockSalesReps.filter(
     (rep) =>
@@ -285,7 +293,7 @@ export function CoverageStep() {
         </Card>
       )}
 
-      {mode === "custom" && <CustomCoverageBuilder />}
+      {mode === "custom" && <CustomCoverageBuilder channels={channels} />}
     </div>
   );
 }

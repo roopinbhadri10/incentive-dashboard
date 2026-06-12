@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -19,7 +19,8 @@ import {
   ArrowDownRight,
   Lightbulb,
 } from "lucide-react";
-import { mockPrograms, regions, channels } from "@/data/mockData";
+import { mockPrograms, regions, channels as mockChannels } from "@/data/mockData";
+import { fetchChannelNames } from "@/lib/saleshubApi";
 import { cn } from "@/lib/utils";
 
 /* ---------- helpers ---------- */
@@ -387,6 +388,13 @@ export function PerformancePage() {
   const [regionFilter, setRegionFilter] = useState("all");
   const [channelFilter, setChannelFilter] = useState("all");
   const [periodFilter, setPeriodFilter] = useState("current");
+  const [channels, setChannels] = useState<string[]>(mockChannels);
+
+  useEffect(() => {
+    fetchChannelNames()
+      .then((names) => { if (names.length > 0) setChannels(names); })
+      .catch(() => { /* keep mock fallback */ });
+  }, []);
 
   const filtered = useMemo(
     () =>

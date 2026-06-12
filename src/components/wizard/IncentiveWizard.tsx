@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { saveProgram, newProgramId, quarterForMonth } from "@/lib/programStore";
 import { buildRulePayloads } from "@/lib/rulePayload";
 import { submitRules } from "@/lib/ruleApi";
+import { fetchChannelNames } from "@/lib/saleshubApi";
 
 const TOTAL_STEPS = 5;
 const REVIEW_STEP = 5;
@@ -42,6 +43,15 @@ export function IncentiveWizard({ onBack, prefill, onPublished }: IncentiveWizar
   });
   const { toast } = useToast();
   const publishingRef = useRef(false);
+
+  // Fetch channels from SalesHub on mount; keeps DEFAULT_CHANNELS as fallback if fetch fails.
+  useEffect(() => {
+    fetchChannelNames()
+      .then((names) => {
+        if (names.length > 0) setState((s) => ({ ...s, channels: names }));
+      })
+      .catch(() => { /* silently keep default channels */ });
+  }, []);
 
   // Dev aid: log the /v1/rules payload built from the current form state each
   // time the user moves between steps, so payloads can be eyeballed while
