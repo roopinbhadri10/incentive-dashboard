@@ -1,0 +1,206 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* The Poppins font is loaded via a <link> tag in index.html (a CSS @import must
+   precede all other statements, so it cannot live below the @tailwind directives). */
+
+@layer base {
+  :root {
+    /* Figma tokens — #F0F0F1 page bg */
+    --background: 240 2% 94%;
+    /* #252525 */
+    --foreground: 0 0% 15%;
+
+    /* #FFFFFF */
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 15%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 15%;
+
+    /* #00A392 */
+    --primary: 172 100% 32%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 0 0% 15%;
+
+    --muted: 240 2% 94%;
+    /* #6B7B92 */
+    --muted-foreground: 213 16% 49%;
+
+    --accent: 45 93% 58%;
+    --accent-foreground: 0 0% 15%;
+
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* #E0E0E0 */
+    --border: 0 0% 88%;
+    --input: 0 0% 88%;
+    --ring: 172 100% 32%;
+
+    --radius: 0.5rem;
+
+    /* Custom semantic tokens */
+    --success: 145 63% 42%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+    --info: 217 91% 60%;
+    --info-foreground: 0 0% 100%;
+
+    /* Sidebar */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 200 15% 30%;
+    --sidebar-primary: 172 100% 32%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 172 100% 96%;
+    --sidebar-accent-foreground: 172 100% 28%;
+    --sidebar-border: 0 0% 90%;
+    --sidebar-ring: 172 100% 32%;
+
+    /* Banner gradients */
+    --banner-purple: linear-gradient(270.96deg, #583DB5 0.74%, #1E0977 50.05%, #18085A 99.38%);
+    --banner-blue: linear-gradient(270.96deg, #1E4FD9 0.74%, #2A5DE0 48.61%, #3D72ED 99.38%);
+    --banner-orange: linear-gradient(270.92deg, #C65610 0.71%, #D26320 47.69%, #ED803D 99.21%);
+
+    /* Create button gradient */
+    --create-gradient: linear-gradient(270deg, #00C6B1 13.38%, #227C9D 90.4%);
+
+    /* Import link */
+    --import-green: 150 53% 25%;
+
+    /* Highlight tokens */
+    --highlight-green: 145 60% 92%;
+    --highlight-green-text: 145 60% 30%;
+    --highlight-yellow: 45 90% 90%;
+    --highlight-yellow-text: 38 80% 35%;
+    --highlight-blue: 210 80% 92%;
+    --highlight-blue-text: 210 80% 35%;
+
+    /* ILC badge colors */
+    --badge-orange-bg: 14 100% 94%;
+    --badge-orange-text: 14 80% 50%;
+    --badge-green-bg: 130 50% 92%;
+    --badge-green-text: 145 60% 35%;
+  }
+
+  .dark {
+    /* Near-black background like the screenshot */
+    --background: 200 10% 6%;
+    --foreground: 160 10% 92%;
+
+    /* Dark cards with subtle teal tint */
+    --card: 200 12% 10%;
+    --card-foreground: 160 10% 92%;
+
+    --popover: 200 12% 10%;
+    --popover-foreground: 160 10% 92%;
+
+    /* Neon cyan/teal primary */
+    --primary: 172 100% 50%;
+    --primary-foreground: 200 10% 6%;
+
+    --secondary: 200 12% 14%;
+    --secondary-foreground: 160 10% 92%;
+
+    --muted: 200 10% 14%;
+    --muted-foreground: 200 8% 55%;
+
+    --accent: 172 100% 50%;
+    --accent-foreground: 200 10% 6%;
+
+    --destructive: 0 62% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 172 20% 18%;
+    --input: 200 12% 18%;
+    --ring: 172 100% 50%;
+
+    --success: 145 63% 42%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+    --info: 217 91% 60%;
+    --info-foreground: 0 0% 100%;
+
+    --sidebar-background: 200 12% 8%;
+    --sidebar-foreground: 160 10% 80%;
+    --sidebar-primary: 172 100% 50%;
+    --sidebar-primary-foreground: 200 10% 6%;
+    --sidebar-accent: 172 40% 12%;
+    --sidebar-accent-foreground: 172 100% 60%;
+    --sidebar-border: 172 20% 16%;
+    --sidebar-ring: 172 100% 50%;
+
+    --import-green: 150 53% 50%;
+
+    --highlight-green: 145 40% 14%;
+    --highlight-green-text: 172 80% 60%;
+    --highlight-yellow: 45 60% 14%;
+    --highlight-yellow-text: 38 80% 70%;
+    --highlight-blue: 210 50% 14%;
+    --highlight-blue-text: 210 80% 70%;
+
+    --badge-orange-bg: 14 60% 16%;
+    --badge-orange-text: 14 80% 70%;
+    --badge-green-bg: 160 40% 14%;
+    --badge-green-text: 172 80% 60%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #root {
+    font-family: 'Poppins', sans-serif;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+}
+
+@layer utilities {
+  .gradient-banner {
+    background: linear-gradient(270deg, #00C6B1 0%, #227C9D 50%, #1A5C75 100%);
+  }
+  .gradient-banner-purple {
+    background: linear-gradient(270.96deg, #583DB5 0.74%, #1E0977 50.05%, #18085A 99.38%);
+  }
+  .gradient-banner-blue {
+    background: linear-gradient(270.96deg, #1E4FD9 0.74%, #2A5DE0 48.61%, #3D72ED 99.38%);
+  }
+  .gradient-banner-orange {
+    background: linear-gradient(270.92deg, #C65610 0.71%, #D26320 47.69%, #ED803D 99.21%);
+  }
+  .gradient-create-btn {
+    background: linear-gradient(270deg, #00C6B1 13.38%, #227C9D 90.4%);
+  }
+
+  .highlight-green {
+    background-color: hsl(var(--highlight-green));
+    color: hsl(var(--highlight-green-text));
+  }
+
+  .highlight-yellow {
+    background-color: hsl(var(--highlight-yellow));
+    color: hsl(var(--highlight-yellow-text));
+  }
+
+  .highlight-blue {
+    background-color: hsl(var(--highlight-blue));
+    color: hsl(var(--highlight-blue-text));
+  }
+}
