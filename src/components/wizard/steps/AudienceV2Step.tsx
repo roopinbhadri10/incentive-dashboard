@@ -8,43 +8,65 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ChevronDown, Info, X, Database, ChevronRight, Check, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import type { AudienceV2State, Channel } from "../builderState";
-import { fetchRoleNames } from "@/lib/saleshubApi";
+import { fetchRoleNames, fetchGeographyTree, type GeographyTree } from "@/lib/saleshubApi";
 
 interface Props {
   value: AudienceV2State;
   onChange: (v: AudienceV2State) => void;
 }
 
-// Mock master-data: in real integration this comes from client MDM.
-// Hierarchy: Zone → State → City
-const GEOGRAPHY_TREE: Record<string, Record<string, string[]>> = {
-  North: {
-    Delhi: ["New Delhi"],
-    "Uttar Pradesh": ["Lucknow", "Noida", "Kanpur"],
-    Punjab: ["Ludhiana", "Amritsar"],
-    Rajasthan: ["Jaipur", "Udaipur"],
-  },
-  South: {
-    Karnataka: ["Bengaluru", "Mysuru"],
-    "Tamil Nadu": ["Chennai", "Coimbatore"],
-    Kerala: ["Kochi", "Thiruvananthapuram", "Kozhikode"],
-    Telangana: ["Hyderabad"],
-  },
-  East: {
-    "West Bengal": ["Kolkata", "Howrah"],
-    Odisha: ["Bhubaneswar"],
-  },
-  West: {
-    Maharashtra: ["Mumbai", "Pune", "Nagpur"],
-    Gujarat: ["Ahmedabad", "Surat"],
-  },
-  Central: {
-    "Madhya Pradesh": ["Bhopal", "Indore"],
-  },
-};
+/**
+ * Drop exception tags that no longer fit the current region selection.
+ * Mirrors the Exceptions picker's selectability: once a base region is chosen,
+ * an exception must be a strict descendant of a "boundary" selection. An empty
+ * selection or "All India" imposes no restriction, so exceptions are kept.
+ */
+function prunedExceptions(
+  tree: GeographyTree,
+  geographies: string[],
+  exceptions: string[]
+): string[] {
+  const restricted = geographies.length > 0 && !geographies.includes("All India");
+  // No scope, or master data not loaded yet → leave exceptions untouched.
+  if (!restricted || Object.keys(tree).length === 0) return exceptions;
 
+  const openZones = new Set<string>();
+  const openStates = new Set<string>();
+  const openCities = new Set<string>();
+  for (const tag of geographies) {
+    if (tag.startsWith("Zone: ")) openZones.add(tag.slice(6));
+    else if (tag.startsWith("State: ")) openStates.add(tag.slice(7));
+    else if (tag.startsWith("City: ")) openCities.add(tag.slice(6));
+  }
 
+  const statesOf = (z: string) => Object.keys(tree[z] ?? {});
+  const citiesOf = (z: string, s: string) => tree[z]?.[s] ?? [];
+  const stateHasOpenCity = (z: string, s: string) => citiesOf(z, s).some((c) => openCities.has(c));
+  const zoneHasOpenState = (z: string) => statesOf(z).some((s) => openStates.has(s));
+  const zoneHasOpenCity = (z: string) => statesOf(z).some((s) => stateHasOpenCity(z, s));
+  const zoneIsBoundary = (z: string) =>
+    openZones.has(z) && !zoneHasOpenState(z) && !zoneHasOpenCity(z);
+  const stateIsBoundary = (z: string, s: string) => openStates.has(s) && !stateHasOpenCity(z, s);
 
+  const zones = Object.keys(tree);
+  const isValid = (tag: string): boolean => {
+    if (tag.startsWith("State: ")) {
+      const s = tag.slice(7);
+      return zones.some((z) => statesOf(z).includes(s) && zoneIsBoundary(z));
+    }
+    if (tag.startsWith("City: ")) {
+      const c = tag.slice(6);
+      return zones.some((z) =>
+        statesOf(z).some(
+          (s) => citiesOf(z, s).includes(c) && (zoneIsBoundary(z) || stateIsBoundary(z, s))
+        )
+      );
+    }
+    // Zone-level exceptions aren't selectable once a base region is chosen.
+    return false;
+  };
+  return exceptions.filter(isValid);
+}
 
 function CascadingGeoPicker({
   placeholder,
@@ -52,6 +74,9 @@ function CascadingGeoPicker({
   onToggle,
   includeAllIndia = true,
   scopeGeographies,
+  tree,
+  loading,
+  error,
 }: {
   placeholder: string;
   selected: string[];
@@ -60,6 +85,10 @@ function CascadingGeoPicker({
   /** When set, the tree is limited to descendants of these selected regions —
    *  used by the Exceptions picker so you can only exclude within what you selected. */
   scopeGeographies?: string[];
+  /** Zone → State → City master data, fetched from SalesHub. */
+  tree: GeographyTree;
+  loading?: boolean;
+  error?: string | null;
 }) {
   const [activeZone, setActiveZone] = useState<string | null>(null);
   const [activeState, setActiveState] = useState<string | null>(null);
@@ -84,8 +113,8 @@ function CascadingGeoPicker({
   // A selected node is a "boundary" only when nothing deeper within it is also
   // selected. Exceptions are a boundary's *strict descendants*, so the most
   // specific selection wins — pick a city and there's nothing left to exclude.
-  const statesOf = (z: string) => Object.keys(GEOGRAPHY_TREE[z]);
-  const citiesOf = (z: string, s: string) => GEOGRAPHY_TREE[z][s];
+  const statesOf = (z: string) => Object.keys(tree[z] ?? {});
+  const citiesOf = (z: string, s: string) => tree[z]?.[s] ?? [];
   const stateHasOpenCity = (z: string, s: string) => citiesOf(z, s).some((c) => openCities.has(c));
   const zoneHasOpenState = (z: string) => statesOf(z).some((s) => openStates.has(s));
   const zoneHasOpenCity = (z: string) => statesOf(z).some((s) => stateHasOpenCity(z, s));
@@ -93,7 +122,7 @@ function CascadingGeoPicker({
     openZones.has(z) && !zoneHasOpenState(z) && !zoneHasOpenCity(z);
   const stateIsBoundary = (z: string, s: string) => openStates.has(s) && !stateHasOpenCity(z, s);
 
-  const allZones = Object.keys(GEOGRAPHY_TREE);
+  const allZones = Object.keys(tree);
   const zones = restricted
     ? allZones.filter((z) => openZones.has(z) || zoneHasOpenState(z) || zoneHasOpenCity(z))
     : allZones;
@@ -170,15 +199,23 @@ function CascadingGeoPicker({
               selected.map((s) => (
                 <Badge key={s} variant="secondary" className="text-xs gap-1">
                   {s}
-                  <X
-                    size={11}
-                    className="cursor-pointer hover:text-destructive"
+                  {/* Wrapper <span> (not an <svg>) so the Button's
+                      [&_svg]:pointer-events-none rule can't disable the click.
+                      Radix's trigger toggles on click, so stopPropagation here
+                      keeps removal from also toggling the popover. */}
+                  <span
+                    role="button"
+                    aria-label={`Remove ${s}`}
+                    className="inline-flex items-center cursor-pointer rounded-sm hover:text-destructive"
+                    onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
                       e.preventDefault();
                       onToggle(s);
                     }}
-                  />
+                  >
+                    <X size={11} />
+                  </span>
                 </Badge>
               ))
             )}
@@ -187,18 +224,26 @@ function CascadingGeoPicker({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[640px] p-0" align="start">
-        <div className="grid grid-cols-3 divide-x divide-border max-h-80">
+        <div className="grid grid-cols-3 divide-x divide-border h-80 overflow-hidden">
           {/* Zones column */}
-          <div className="overflow-y-auto p-1">
-            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+          <div className="overflow-y-auto min-h-0 p-1">
+            <div className="sticky top-0 z-10 bg-popover px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">
               Zone
             </div>
             {includeAllIndia && (
               <Row label="All India" tag="All India" />
             )}
-            {zones.length === 0 ? (
+            {loading ? (
+              <div className="text-[11px] text-muted-foreground p-3 flex items-center gap-2">
+                <Loader2 size={12} className="animate-spin" /> Loading regions…
+              </div>
+            ) : error ? (
+              <div className="text-[11px] text-destructive p-3">{error}</div>
+            ) : zones.length === 0 ? (
               <div className="text-[11px] text-muted-foreground p-3">
-                Select a region first to add exceptions within it.
+                {restricted
+                  ? "Select a region first to add exceptions within it."
+                  : "No regions available."}
               </div>
             ) : (
               zones.map((z) => (
@@ -219,8 +264,8 @@ function CascadingGeoPicker({
           </div>
 
           {/* States column */}
-          <div className="overflow-y-auto p-1">
-            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+          <div className="overflow-y-auto min-h-0 p-1">
+            <div className="sticky top-0 z-10 bg-popover px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">
               State
             </div>
             {!activeZone ? (
@@ -243,8 +288,8 @@ function CascadingGeoPicker({
           </div>
 
           {/* Cities column */}
-          <div className="overflow-y-auto p-1">
-            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+          <div className="overflow-y-auto min-h-0 p-1">
+            <div className="sticky top-0 z-10 bg-popover px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">
               City
             </div>
             {!activeState ? (
@@ -272,6 +317,10 @@ export function AudienceV2Step({ value, onChange }: Props) {
   const [rolesLoading, setRolesLoading] = useState(true);
   const [rolesError, setRolesError] = useState<string | null>(null);
 
+  const [geoTree, setGeoTree] = useState<GeographyTree>({});
+  const [geoLoading, setGeoLoading] = useState(true);
+  const [geoError, setGeoError] = useState<string | null>(null);
+
   useEffect(() => {
     fetchRoleNames()
       .then(setRoles)
@@ -279,22 +328,33 @@ export function AudienceV2Step({ value, onChange }: Props) {
       .finally(() => setRolesLoading(false));
   }, []);
 
+  useEffect(() => {
+    fetchGeographyTree()
+      .then(setGeoTree)
+      .catch((e: Error) => setGeoError(e.message))
+      .finally(() => setGeoLoading(false));
+  }, []);
+
   const setDivision = (c: Channel) => onChange({ ...value, division: c });
 
   const setRole = (r: string) => onChange({ ...value, roles: r ? [r] : [] });
 
   const toggleGeo = (g: string) => {
+    let next: string[];
     if (g === "All India") {
       const already = value.geographies.includes("All India") && value.geographies.length === 1;
-      return onChange({
-        ...value,
-        geographies: already ? [] : ["All India"],
-        geographyExceptions: already ? value.geographyExceptions : value.geographyExceptions,
-      });
+      next = already ? [] : ["All India"];
+    } else {
+      const cleaned = value.geographies.filter((x) => x !== "All India");
+      next = cleaned.includes(g) ? cleaned.filter((x) => x !== g) : [...cleaned, g];
     }
-    const cleaned = value.geographies.filter((x) => x !== "All India");
-    const next = cleaned.includes(g) ? cleaned.filter((x) => x !== g) : [...cleaned, g];
-    onChange({ ...value, geographies: next });
+    // Re-validate exceptions against the new selection so orphaned ones (e.g. a
+    // state excluded under a region that's no longer selected) are dropped.
+    onChange({
+      ...value,
+      geographies: next,
+      geographyExceptions: prunedExceptions(geoTree, next, value.geographyExceptions),
+    });
   };
 
   const toggleException = (g: string) => {
@@ -395,6 +455,9 @@ export function AudienceV2Step({ value, onChange }: Props) {
             placeholder="Select regions (Zone → State → City)"
             selected={value.geographies}
             onToggle={toggleGeo}
+            tree={geoTree}
+            loading={geoLoading}
+            error={geoError}
           />
         </div>
 
@@ -408,6 +471,9 @@ export function AudienceV2Step({ value, onChange }: Props) {
             onToggle={toggleException}
             includeAllIndia={false}
             scopeGeographies={value.geographies}
+            tree={geoTree}
+            loading={geoLoading}
+            error={geoError}
           />
           <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
             <Info size={11} className="mt-0.5 shrink-0" />
