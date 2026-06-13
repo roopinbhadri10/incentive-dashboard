@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Rocket, AlertTriangle, ChevronUp, ChevronDown, Plus, Trash2, Pencil } from "lucide-react";
 import type { BuilderState, ProgramKpi, KpiGroup } from "../builderState";
 import { KPI_TEMPLATE_MAP, kpiDisplayName } from "@/components/kpi-library/registry";
+import { ConfigDrivenKpiCard } from "@/components/kpi-library/ConfigDrivenKpiCard";
 import { quarterForMonth } from "@/lib/programStore";
 import { AudienceContextChip } from "../AudienceContextChip";
 
@@ -142,7 +143,6 @@ export function ReviewSimulateStep({ state, onGoLive, onKpisChange, onJumpToAddK
               const tpl = KPI_TEMPLATE_MAP[k.templateId];
               const max = tpl.maxPayout(k.config);
               const isOpen = expanded === k.instanceId;
-              const C = tpl.Component;
               return (
                 <div key={k.instanceId} className="border border-border rounded-md">
                   <button
@@ -153,7 +153,7 @@ export function ReviewSimulateStep({ state, onGoLive, onKpisChange, onJumpToAddK
                     <div>
                       <div className="text-sm font-medium">{kpiDisplayName(k.templateId, k.customName)}</div>
                       <div className="text-[11px] text-muted-foreground">
-                        {k.customName?.trim() ? <span className="mr-1">{tpl.name} ·</span> : null}
+                        {k.customName?.trim() ? <span className="mr-1">{tpl.meta.name} ·</span> : null}
                         {tpl.summarize(k.config)}
                       </div>
                     </div>
@@ -164,7 +164,9 @@ export function ReviewSimulateStep({ state, onGoLive, onKpisChange, onJumpToAddK
                   </button>
                   {isOpen && (
                     <div className="p-3 border-t border-border space-y-3">
-                      <C
+                      <ConfigDrivenKpiCard
+                        meta={tpl.meta}
+                        tag={tpl.tag}
                         value={k.config}
                         onChange={(cfg: unknown) => updateKpiConfig(k.instanceId, cfg)}
                       />

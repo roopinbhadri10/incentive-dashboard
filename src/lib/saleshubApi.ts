@@ -9,7 +9,7 @@ const SALESHUB_BASE_URL =
   import.meta.env.VITE_SALESHUB_BASE_URL ?? "https://api.salescodeai.com";
 
 const SALESHUB_TOKEN =
-  import.meta.env.VITE_SALESHUB_TOKEN ?? "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzYWxlc2RiLWF1dGgiLCJpYXQiOjE3ODEyODM1NjMsImV4cCI6MTc4MTMxOTU2MywidGVuYW50X2lkIjoienlkdXMiLCJ1c2VyX2lkIjo3MDU0MDMsInVzZXJuYW1lIjoic2FsZXNodWJAc2FsZXNjb2RlLmFpIiwib3JnX3R5cGUiOm51bGwsIm9yZ19jb2RlIjpudWxsLCJkZWZhdWx0X2NyZWRzIjp0cnVlLCJyb2xlcyI6WyJURU5BTlRfQURNSU4iXSwianRpIjoiODE1YTFhMDMtOGM5NC00YjVlLTkwYzgtOThjOTEwYzEzYWZkIn0.uqUMGLhzhSntnqGL4Z3VGzFQZ5CYmHNgW1UdQAIfUn8"
+  import.meta.env.VITE_SALESHUB_TOKEN ?? "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzYWxlc2RiLWF1dGgiLCJpYXQiOjE3ODEzMzA0NzQsImV4cCI6MTc4MTM2NjQ3NCwidGVuYW50X2lkIjoienlkdXMiLCJ1c2VyX2lkIjo3MDU0MDMsInVzZXJuYW1lIjoic2FsZXNodWJAc2FsZXNjb2RlLmFpIiwib3JnX3R5cGUiOm51bGwsIm9yZ19jb2RlIjpudWxsLCJkZWZhdWx0X2NyZWRzIjp0cnVlLCJyb2xlcyI6WyJURU5BTlRfQURNSU4iXSwianRpIjoiNTJjMmVjZDUtNmJhNC00OTEwLWFjN2ItM2UzNjNkMzNlNDBkIn0.k8TXs8mIIp9tLeD8WhPF4J2CoNpSJ8erVLmBBhAOfEs"
   // "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzYWxlc2RiLWF1dGgiLCJpYXQiOjE3ODEyNzk3NzYsImV4cCI6MTc4MTMxNTc3NiwidGVuYW50X2lkIjoiRW1hbWkiLCJ1c2VyX2lkIjoxNDcwNzgsInVzZXJuYW1lIjoiRW1hbWkiLCJvcmdfdHlwZSI6bnVsbCwib3JnX2NvZGUiOm51bGwsImRlZmF1bHRfY3JlZHMiOnRydWUsInJvbGVzIjpbIlRFTkFOVF9BRE1JTiJdLCJqdGkiOiJlYTYxOWMxNC00MTQ0LTQxM2EtOWM4Ny0xODJlZDE5MmEzMDIifQ.gpSpEl8-Iq-VaMnIw_TBw3iXtyLuJtnC_kpOjQLKFLc";
 
 const SALESHUB_TENANT_ID =
@@ -331,11 +331,22 @@ const configCache = new Map<string, Promise<ConfigFeature[]>>();
  */
 export async function fetchConfigFeatures<TValue = unknown>(
   domainName: string,
-  domainType: string
+  domainType: string,
+  /**
+   * Dummy features to serve when the API is unavailable or returns nothing for
+   * this domain. Defaults to the bundled DUMMY_CONFIG. Callers with large config
+   * payloads (e.g. KPI sections) pass their own so the data lives next to its
+   * feature code instead of in this generic client.
+   */
+  dummyFeatures?: ConfigFeature[]
 ): Promise<ConfigFeature<TValue>[]> {
   const key = `${domainName}::${domainType}`;
   const cached = configCache.get(key);
   if (cached) return cached as Promise<ConfigFeature<TValue>[]>;
+
+  const matches = (f: ConfigFeature) =>
+    f.domainName === domainName && f.domainType === domainType;
+  const fallback = () => (dummyFeatures ?? DUMMY_CONFIG.features).filter(matches);
 
   const load = (async (): Promise<ConfigFeature[]> => {
     const qs = new URLSearchParams({ domainName, domainType });
@@ -345,14 +356,12 @@ export async function fetchConfigFeatures<TValue = unknown>(
       });
       if (!res.ok) throw new Error(`config responded ${res.status}`);
       const data = (await res.json()) as ConfigResponse;
-      return (data.features ?? []).filter(
-        (f) => f.domainName === domainName && f.domainType === domainType
-      );
+      const matched = (data.features ?? []).filter(matches);
+      // API reachable but this domain isn't configured yet → use the dummy.
+      return matched.length ? matched : fallback();
     } catch {
       // API not available yet — serve the bundled dummy config in wire shape.
-      return DUMMY_CONFIG.features.filter(
-        (f) => f.domainName === domainName && f.domainType === domainType
-      );
+      return fallback();
     }
   })();
 

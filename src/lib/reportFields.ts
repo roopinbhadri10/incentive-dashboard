@@ -5,10 +5,10 @@
 import type { SavedProgram, SavedProgramKpi } from "@/lib/programStore";
 import { KPI_TEMPLATE_MAP, kpiDisplayName, type KpiTemplateId } from "@/components/kpi-library/registry";
 import { computeSlabEarnings, type NsvTemplateConfig } from "@/components/kpi-library/nsvTypes";
-import type { EcoConfig } from "@/components/kpi-library/EcoTemplateCard";
-import type { LinesConfig } from "@/components/kpi-library/LinesTemplateCard";
-import type { SimpleSlabConfig } from "@/components/kpi-library/SimpleSlabTemplateCard";
-import { simpleSlabMaxPayout } from "@/components/kpi-library/SimpleSlabTemplateCard";
+import {
+  simpleSlabMaxPayout,
+  type EcoConfig, type LinesConfig, type SimpleSlabConfig,
+} from "@/components/kpi-library/kpiConfigTypes";
 import { batchesForRole, type UserListUser } from "@/lib/userListsStore";
 
 // ─── Seeded RNG (stable across downloads) ─────────────────────────────────

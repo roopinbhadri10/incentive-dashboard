@@ -24,8 +24,10 @@ import { cn } from "@/lib/utils";
 import type { ProgramKpi, KpiGroup, AudienceV2State } from "../builderState";
 import { AudienceContextChip } from "../AudienceContextChip";
 import {
-  KPI_TEMPLATES, KPI_TEMPLATE_MAP, kpiDisplayName, type KpiTemplateId,
+  KPI_TEMPLATE_MAP, kpiDisplayName, type KpiTemplateId,
 } from "@/components/kpi-library/registry";
+import { ConfigDrivenKpiCard } from "@/components/kpi-library/ConfigDrivenKpiCard";
+import { useKpiCatalog } from "@/components/kpi-library/useKpiCatalog";
 
 interface Props {
   value: ProgramKpi[];
@@ -131,6 +133,7 @@ function AddKpiSheet({
   const [groupIds, setGroupIds] = useState<string[]>(defaultGroupId ? [defaultGroupId] : []);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("All");
+  const { templates } = useKpiCatalog();
 
   // When the sheet opens (e.g. via "Add KPI to group"), seed the group target from
   // defaultGroupId. The sheet stays mounted, so without this the first add lands
@@ -145,22 +148,22 @@ function AddKpiSheet({
 
   const categories = useMemo(() => {
     const set = new Set<string>();
-    KPI_TEMPLATES.forEach((t) => set.add(t.tag));
+    templates.forEach((t) => set.add(t.tag));
     return ["All", ...Array.from(set)];
-  }, []);
+  }, [templates]);
 
   const filteredTemplates = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return KPI_TEMPLATES.filter((t) => {
+    return templates.filter((t) => {
       if (categoryFilter !== "All" && t.tag !== categoryFilter) return false;
       if (!q) return true;
       return (
-        t.name.toLowerCase().includes(q) ||
-        t.description.toLowerCase().includes(q) ||
+        t.meta.name.toLowerCase().includes(q) ||
+        t.meta.description.toLowerCase().includes(q) ||
         t.tag.toLowerCase().includes(q)
       );
     });
-  }, [search, categoryFilter]);
+  }, [search, categoryFilter, templates]);
 
   const reset = () => {
     setSelectedTemplate(null);
@@ -314,10 +317,11 @@ function AddKpiSheet({
                       No KPIs match your search.
                     </div>
                   ) : filteredTemplates.map((t) => {
-                    const disabled = groupIds.length === 0 && ungroupedExistingTemplates.has(t.id);
-                    const active = selectedTemplate === t.id;
+                    const id = t.meta.id as KpiTemplateId;
+                    const disabled = groupIds.length === 0 && ungroupedExistingTemplates.has(id);
+                    const active = selectedTemplate === id;
                     return (
-                      <button key={t.id} onClick={() => !disabled && setSelectedTemplate(t.id)} disabled={disabled}
+                      <button key={id} onClick={() => !disabled && setSelectedTemplate(id)} disabled={disabled}
                         className={cn("w-full text-left px-3 py-2.5 rounded-md border transition",
                           disabled ? "opacity-40 cursor-not-allowed"
                             : active ? "border-primary bg-primary/10"
@@ -325,15 +329,15 @@ function AddKpiSheet({
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0 flex-1">
                             <div className="text-sm font-medium leading-tight flex items-center gap-1.5 flex-wrap">
-                              {t.id === "ai_recommended_order" ? (
+                              {id === "ai_recommended_order" ? (
                                 <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[10px] font-semibold tracking-wide">
                                   <Sparkles size={10} /> AI-Powered Order
                                 </span>
                               ) : (
-                                t.name
+                                t.meta.name
                               )}
                             </div>
-                            <div className="text-xs text-muted-foreground mt-1 leading-snug">{t.description}</div>
+                            <div className="text-xs text-muted-foreground mt-1 leading-snug">{t.meta.description}</div>
                             {disabled && <div className="text-[10px] text-primary mt-1">Already added (ungrouped)</div>}
                           </div>
                           <Badge variant="secondary" className="text-[10px] shrink-0 mt-0.5">{t.tag}</Badge>
@@ -350,7 +354,7 @@ function AddKpiSheet({
         <div className="shrink-0 border-t border-border bg-background px-6 py-3 flex items-center justify-between gap-2">
           <div className="text-xs text-muted-foreground truncate min-w-0">
             {selectedTpl ? (
-              <>Selected: <span className="font-medium text-foreground">{selectedTpl.name}</span></>
+              <>Selected: <span className="font-medium text-foreground">{selectedTpl.meta.name}</span></>
             ) : (
               "Select a KPI from the list to configure it."
             )}
@@ -615,7 +619,7 @@ export function ProgramKpiStep({
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   const active = value.find((k) => k.instanceId === activeId) ?? null;
-  const ActiveComp = active ? KPI_TEMPLATE_MAP[active.templateId].Component : null;
+  const activeTpl = active ? KPI_TEMPLATE_MAP[active.templateId] : null;
 
   const ungrouped = value.filter((k) => !k.groupIds || k.groupIds.length === 0);
   const byGroup = (gid: string) => value.filter((k) => (k.groupIds ?? []).includes(gid));
@@ -918,10 +922,10 @@ export function ProgramKpiStep({
         </Card>
 
         <div className="space-y-3">
-          {active && ActiveComp ? (
+          {active && activeTpl ? (
             <>
               <KpiNameEditor
-                templateName={KPI_TEMPLATE_MAP[active.templateId].name}
+                templateName={activeTpl.meta.name}
                 value={active.customName ?? ""}
                 onChange={(name) =>
                   onChange(value.map((k) => (k.instanceId === active.instanceId ? { ...k, customName: name } : k)))
@@ -995,7 +999,14 @@ export function ProgramKpiStep({
                 lockedRole={lockedRole}
                 onChange={updateActive}
               />
-              <ActiveComp value={active.config} onChange={updateActive} hideRoleSelector />
+              <ConfigDrivenKpiCard
+                meta={activeTpl.meta}
+                tag={activeTpl.tag}
+                value={active.config}
+                onChange={updateActive}
+                lockedRole={lockedRole}
+                hideRoleSelector
+              />
             </>
           ) : (
             <Card className="p-12 text-center text-sm text-muted-foreground border-dashed">

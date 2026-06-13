@@ -1,0 +1,1851 @@
+{
+  "kpis": [
+    {
+      "id": "ai_recommended_order",
+      "name": "AI Recommended Order",
+      "tag": "AI Recommendations",
+      "description": "Rewards reps for fulfilling the SFA one-click order (Cross-sell + Recover SKU).",
+      "sample": "Cross-sell + Recover · % accepted · up to ₹4,000",
+      "cadenceLabel": "Monthly payout",
+      "computeId": "aiReco",
+      "defaultConfig": {
+        "crossSell": {
+          "enabled": true,
+          "payoutBasis": "monthly_pct",
+          "complianceType": "sku_and_qty",
+          "slabs": [
+            {
+              "threshold": 60,
+              "payout": 500
+            },
+            {
+              "threshold": 80,
+              "payout": 1200
+            },
+            {
+              "threshold": 100,
+              "payout": 2000
+            }
+          ],
+          "perLine": {
+            "ratePerLine": 2,
+            "minLines": 50,
+            "maxLines": 1000
+          }
+        },
+        "recover": {
+          "enabled": true,
+          "payoutBasis": "monthly_pct",
+          "complianceType": "sku_and_qty",
+          "slabs": [
+            {
+              "threshold": 60,
+              "payout": 500
+            },
+            {
+              "threshold": 80,
+              "payout": 1200
+            },
+            {
+              "threshold": 100,
+              "payout": 2000
+            }
+          ],
+          "perLine": {
+            "ratePerLine": 2,
+            "minLines": 50,
+            "maxLines": 1000
+          }
+        },
+        "keyNotes": [
+          "Recommendation = one-click order suggested by the SFA AI/ML engine for a specific outlet.",
+          "SKU compliance = the recommended SKU was billed at the outlet. Qty compliance additionally requires billed qty ≥ recommended qty.",
+          "Any SKU within the same CRS / group code as the recommended SKU also counts towards your compliance.",
+          "Monthly % compliance = complied recommendations ÷ recommendations served in the period. Per-line basis pays ₹ for every complied line."
+        ]
+      },
+      "sections": [
+        {
+          "kind": "info",
+          "id": "intro",
+          "text": "Recommendations are served daily by the SFA AI/ML engine. A recommendation is \"complied\" based on the chosen compliance type — SKU only (recommended SKU billed) or SKU + Qty (recommended SKU billed at recommended qty or higher). Any SKU within the same CRS / group code also counts."
+        },
+        {
+          "kind": "ai-reco",
+          "id": "submetrics",
+          "subMetrics": [
+            {
+              "path": "crossSell",
+              "title": "Cross-sell SKU",
+              "subtitle": "New SKU being pushed at the outlet."
+            },
+            {
+              "path": "recover",
+              "title": "Recover SKU",
+              "subtitle": "Regularly sold SKU we are upselling back."
+            }
+          ]
+        },
+        {
+          "kind": "key-notes",
+          "id": "notes",
+          "numbered": true,
+          "path": "keyNotes"
+        }
+      ]
+    },
+    {
+      "id": "nsv",
+      "name": "Net Sales Value",
+      "tag": "Sales Volume",
+      "description": "Monthly net sales vs target.",
+      "sample": "Slabs 95% → 110% · ₹2,400 → ₹6,000",
+      "cadenceLabel": "Monthly payout",
+      "computeId": "slabEarnings",
+      "defaultConfig": {
+        "basis": "primary",
+        "slabs": [
+          {
+            "pct": 95,
+            "ratePerPct": 320,
+            "entryPayout": 2400
+          },
+          {
+            "pct": 100,
+            "ratePerPct": 320
+          },
+          {
+            "pct": 105,
+            "ratePerPct": 200
+          },
+          {
+            "pct": 110,
+            "ratePerPct": 200
+          }
+        ],
+        "cap": {
+          "enabled": true,
+          "pct": 110
+        },
+        "gatesEnabled": false,
+        "gates": [],
+        "keyNotes": [
+          "Earned on monthly Net Sales Value vs target.",
+          "Slab-based payout — higher achievement, higher rate.",
+          "Cap applies above the top slab."
+        ]
+      },
+      "sections": [
+        {
+          "kind": "target-source",
+          "id": "basis",
+          "title": "NSV Basis",
+          "numbered": true,
+          "sfaKey": "nsv",
+          "basisPath": "basis",
+          "secondarySourcePath": "secondarySource",
+          "fileNamePath": "targetFileName",
+          "statusPath": "targetStatus"
+        },
+        {
+          "kind": "slabs",
+          "id": "slabs",
+          "title": "Slabs",
+          "numbered": true,
+          "path": "slabs",
+          "variant": "nsv",
+          "modePath": "stepMode"
+        },
+        {
+          "kind": "earning-ladder",
+          "id": "earn",
+          "title": "Earning potential across slabs",
+          "numbered": true,
+          "computeId": "slabEarnings"
+        },
+        {
+          "kind": "field-group",
+          "id": "cap",
+          "title": "Cap (maximum payable achievement)",
+          "numbered": true,
+          "fields": [
+            {
+              "kind": "switch",
+              "path": "cap.enabled",
+              "onLabel": "Cap enabled",
+              "offLabel": "No cap",
+              "inline": true
+            },
+            {
+              "kind": "number",
+              "path": "cap.pct",
+              "label": "Cap at",
+              "suffix": "% achievement",
+              "inline": true,
+              "visibleWhen": {
+                "path": "cap.enabled",
+                "truthy": true
+              }
+            }
+          ],
+          "note": "Beyond the cap, no additional reward is offered no matter how far the limit is exceeded."
+        },
+        {
+          "kind": "gates",
+          "id": "gates",
+          "title": "Gate conditions",
+          "numbered": true,
+          "selfId": "nsv",
+          "enabledPath": "gatesEnabled",
+          "gatesPath": "gates",
+          "kpiNoun": "NSV",
+          "showConsequence": true,
+          "showCollectionBasis": true
+        },
+        {
+          "kind": "key-notes",
+          "id": "notes",
+          "numbered": true,
+          "path": "keyNotes"
+        }
+      ]
+    },
+    {
+      "id": "phasing",
+      "name": "Sales Phasing",
+      "tag": "In-Month Pacing",
+      "description": "Rewards achieving a % of the month's NSV target by a cut-off date.",
+      "sample": "By day 20 · 55% → 75% · ₹450 → ₹1,330",
+      "cadenceLabel": "Monthly payout",
+      "computeId": "slabEarnings",
+      "defaultConfig": {
+        "cutoffDay": 20,
+        "basis": "secondary",
+        "slabs": [
+          {
+            "pct": 55,
+            "ratePerPct": 30,
+            "entryPayout": 450
+          },
+          {
+            "pct": 65,
+            "ratePerPct": 30
+          },
+          {
+            "pct": 70,
+            "ratePerPct": 38
+          },
+          {
+            "pct": 75,
+            "ratePerPct": 38
+          }
+        ],
+        "cap": {
+          "enabled": true,
+          "pct": 75
+        },
+        "gatesEnabled": true,
+        "gates": [
+          {
+            "id": "gate_bf9spin",
+            "dependsOnKpiId": "nsv",
+            "thresholdValue": 95,
+            "thresholdUnit": "pct",
+            "consequence": {
+              "kind": "zero"
+            }
+          }
+        ],
+        "keyNotes": [
+          "Rewards hitting a % of monthly target by the cut-off day.",
+          "Slab-based bonus on top of monthly NSV.",
+          "Zero payout if the full-month gate is not met."
+        ]
+      },
+      "sections": [
+        {
+          "kind": "field-group",
+          "id": "cutoff",
+          "title": "Cut-off date",
+          "numbered": true,
+          "fields": [
+            {
+              "kind": "number",
+              "path": "cutoffDay",
+              "label": "Achieve % of month target by day",
+              "min": 1,
+              "max": 31,
+              "suffix": "of the month",
+              "inline": true
+            }
+          ]
+        },
+        {
+          "kind": "target-source",
+          "id": "basis",
+          "title": "Phasing Basis",
+          "numbered": true,
+          "sfaKey": "phasing",
+          "basisPath": "basis",
+          "secondarySourcePath": "secondarySource",
+          "fileNamePath": "targetFileName",
+          "statusPath": "targetStatus"
+        },
+        {
+          "kind": "slabs",
+          "id": "slabs",
+          "title": "Slabs",
+          "numbered": true,
+          "path": "slabs",
+          "variant": "nsv",
+          "modePath": "stepMode"
+        },
+        {
+          "kind": "earning-ladder",
+          "id": "earn",
+          "title": "Earning potential across slabs",
+          "numbered": true,
+          "computeId": "slabEarnings"
+        },
+        {
+          "kind": "field-group",
+          "id": "cap",
+          "title": "Cap (maximum payable achievement)",
+          "numbered": true,
+          "fields": [
+            {
+              "kind": "switch",
+              "path": "cap.enabled",
+              "onLabel": "Cap enabled",
+              "offLabel": "No cap",
+              "inline": true
+            },
+            {
+              "kind": "number",
+              "path": "cap.pct",
+              "label": "Cap at",
+              "suffix": "% achievement",
+              "inline": true,
+              "visibleWhen": {
+                "path": "cap.enabled",
+                "truthy": true
+              }
+            }
+          ],
+          "note": "Beyond the cap, no additional reward is offered no matter how far the limit is exceeded."
+        },
+        {
+          "kind": "gates",
+          "id": "gates",
+          "title": "Gate conditions",
+          "numbered": true,
+          "selfId": "phasing",
+          "enabledPath": "gatesEnabled",
+          "gatesPath": "gates",
+          "kpiNoun": "Phasing",
+          "showConsequence": true,
+          "showCollectionBasis": false
+        },
+        {
+          "kind": "key-notes",
+          "id": "notes",
+          "numbered": true,
+          "path": "keyNotes"
+        }
+      ]
+    },
+    {
+      "id": "eco",
+      "name": "Productive Coverage",
+      "tag": "Coverage",
+      "description": "Outlets billed ≥ the minimum bill value threshold.",
+      "sample": "Min ₹250 GSV/bill · 150 → 250 outlets",
+      "cadenceLabel": "Monthly payout",
+      "computeId": "ecoLadder",
+      "defaultConfig": {
+        "role": "mr",
+        "minBillEnabled": true,
+        "minBillMode": "per_bill",
+        "minBillAmount": 250,
+        "slabs": [
+          {
+            "count": 150,
+            "ratePerOutlet": 2
+          },
+          {
+            "count": 200,
+            "ratePerOutlet": 2
+          },
+          {
+            "count": 225,
+            "ratePerOutlet": 2
+          },
+          {
+            "count": 250,
+            "ratePerOutlet": 2
+          }
+        ],
+        "rateMultiplier": 3,
+        "doubleBillingCountsTwice": false,
+        "cap": {
+          "enabled": true,
+          "outlets": 300
+        },
+        "gatesEnabled": false,
+        "gates": [],
+        "keyNotes": [
+          "Outlets billed ≥ the minimum bill value threshold count.",
+          "Slab-based payout on outlet count (MR).",
+          "ASO/ASE earn a rate × Avg MR earning under them."
+        ]
+      },
+      "headerBadges": [
+        "Bill value: GSV"
+      ],
+      "sections": [
+        {
+          "kind": "field-group",
+          "id": "role",
+          "title": "Role this template configures",
+          "numbered": true,
+          "onlyWithRoleSelector": true,
+          "fields": [
+            {
+              "kind": "segmented",
+              "path": "role",
+              "options": [
+                {
+                  "value": "mr",
+                  "label": "MR — slab-based earning"
+                },
+                {
+                  "value": "aso_ase",
+                  "label": "ASO / ASE — Rate × Avg MR earning"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "field-group",
+          "id": "minbill",
+          "title": "Minimum bill value threshold",
+          "numbered": true,
+          "fields": [
+            {
+              "kind": "switch",
+              "path": "minBillEnabled",
+              "onLabel": "Threshold enabled",
+              "offLabel": "Any non-zero billing qualifies",
+              "inline": true
+            },
+            {
+              "kind": "select",
+              "path": "minBillMode",
+              "label": "Threshold mode",
+              "visibleWhen": {
+                "path": "minBillEnabled",
+                "truthy": true
+              },
+              "options": [
+                {
+                  "value": "per_bill",
+                  "label": "Min value per bill"
+                },
+                {
+                  "value": "per_visit",
+                  "label": "Min value per visit"
+                },
+                {
+                  "value": "cumulative_daily",
+                  "label": "Min cumulative daily GSV"
+                },
+                {
+                  "value": "cumulative_weekly",
+                  "label": "Min cumulative weekly GSV"
+                },
+                {
+                  "value": "cumulative_fortnightly",
+                  "label": "Min cumulative fortnightly GSV"
+                },
+                {
+                  "value": "cumulative_monthly",
+                  "label": "Min cumulative monthly GSV"
+                }
+              ]
+            },
+            {
+              "kind": "number",
+              "path": "minBillAmount",
+              "label": "Amount",
+              "prefix": "₹",
+              "suffix": "GSV",
+              "inline": true,
+              "visibleWhen": {
+                "path": "minBillEnabled",
+                "truthy": true
+              }
+            }
+          ]
+        },
+        {
+          "kind": "slabs",
+          "id": "slabs",
+          "title": "Outlet-count slabs (MR)",
+          "numbered": true,
+          "path": "slabs",
+          "variant": "eco",
+          "visibleWhen": {
+            "path": "role",
+            "equals": "mr"
+          }
+        },
+        {
+          "kind": "field-group",
+          "id": "formula",
+          "title": "Earning formula (ASO / ASE)",
+          "numbered": true,
+          "visibleWhen": {
+            "path": "role",
+            "equals": "aso_ase"
+          },
+          "fields": [
+            {
+              "kind": "number",
+              "path": "rateMultiplier",
+              "label": "Earning =",
+              "suffix": "× Avg MR earning",
+              "inline": true
+            }
+          ]
+        },
+        {
+          "kind": "field-group",
+          "id": "double",
+          "title": "Same-day double billing",
+          "numbered": true,
+          "fields": [
+            {
+              "kind": "switch",
+              "path": "doubleBillingCountsTwice",
+              "onLabel": "Counts as two events",
+              "offLabel": "Counts as one event",
+              "inline": true
+            }
+          ]
+        },
+        {
+          "kind": "field-group",
+          "id": "cap",
+          "title": "Cap (maximum payable outlets)",
+          "numbered": true,
+          "visibleWhen": {
+            "path": "role",
+            "equals": "mr"
+          },
+          "fields": [
+            {
+              "kind": "switch",
+              "path": "cap.enabled",
+              "onLabel": "Cap enabled",
+              "offLabel": "No cap",
+              "inline": true
+            },
+            {
+              "kind": "number",
+              "path": "cap.outlets",
+              "label": "Cap at",
+              "suffix": "outlets",
+              "inline": true,
+              "visibleWhen": {
+                "path": "cap.enabled",
+                "truthy": true
+              }
+            }
+          ]
+        },
+        {
+          "kind": "gates",
+          "id": "gates",
+          "title": "Gate conditions",
+          "numbered": true,
+          "selfId": "eco",
+          "enabledPath": "gatesEnabled",
+          "gatesPath": "gates",
+          "kpiNoun": "this KPI",
+          "showConsequence": true,
+          "showCollectionBasis": false
+        },
+        {
+          "kind": "key-notes",
+          "id": "notes",
+          "numbered": false,
+          "path": "keyNotes"
+        }
+      ]
+    },
+    {
+      "id": "tlsd",
+      "name": "Lines Sold",
+      "tag": "Distribution",
+      "description": "Lines sold at CRS group code level.",
+      "sample": "Min 750 · Max 2,500 · ₹1/line",
+      "cadenceLabel": "Monthly payout",
+      "computeId": "linesLadder",
+      "defaultConfig": {
+        "role": "mr",
+        "countingLevel": "group",
+        "minQtyEnabled": false,
+        "minQtyValue": 1,
+        "minQtyUom": "case",
+        "minLines": 750,
+        "maxLines": 2500,
+        "ratePerLine": 1,
+        "rateMultiplier": 3,
+        "gatesEnabled": false,
+        "gates": [],
+        "keyNotes": [
+          "Counts unique lines sold at CRS group code level.",
+          "2 SKUs in the same CRS = 1 line.",
+          "Same CRS in separate visits to the same outlet = 2 lines."
+        ]
+      },
+      "sections": [
+        {
+          "kind": "field-group",
+          "id": "role",
+          "title": "Role this template configures",
+          "numbered": true,
+          "onlyWithRoleSelector": true,
+          "fields": [
+            {
+              "kind": "segmented",
+              "path": "role",
+              "options": [
+                {
+                  "value": "mr",
+                  "label": "MR — rate × lines"
+                },
+                {
+                  "value": "aso_ase",
+                  "label": "ASO / ASE — Rate × Avg MR earning"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "field-group",
+          "id": "lines",
+          "title": "Lines-based earning (MR)",
+          "numbered": true,
+          "columns": 3,
+          "visibleWhen": {
+            "path": "role",
+            "equals": "mr"
+          },
+          "fields": [
+            {
+              "kind": "number",
+              "path": "minLines",
+              "label": "Min lines to earn"
+            },
+            {
+              "kind": "number",
+              "path": "maxLines",
+              "label": "Max lines (cap)"
+            },
+            {
+              "kind": "number",
+              "path": "ratePerLine",
+              "label": "Rate per line (₹)"
+            }
+          ]
+        },
+        {
+          "kind": "earning-ladder",
+          "id": "earn",
+          "title": "Earning potential",
+          "computeId": "linesLadder",
+          "visibleWhen": {
+            "path": "role",
+            "equals": "mr"
+          }
+        },
+        {
+          "kind": "field-group",
+          "id": "formula",
+          "title": "Earning formula (ASO / ASE)",
+          "numbered": true,
+          "visibleWhen": {
+            "path": "role",
+            "equals": "aso_ase"
+          },
+          "fields": [
+            {
+              "kind": "number",
+              "path": "rateMultiplier",
+              "label": "Earning =",
+              "suffix": "× Avg MR earning",
+              "inline": true
+            }
+          ]
+        },
+        {
+          "kind": "field-group",
+          "id": "counting",
+          "title": "Counting level",
+          "numbered": true,
+          "fields": [
+            {
+              "kind": "select",
+              "path": "countingLevel",
+              "options": [
+                {
+                  "value": "group",
+                  "label": "Group code (CRS) — variants roll up"
+                },
+                {
+                  "value": "sku",
+                  "label": "SKU code — each SKU counts separately"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "field-group",
+          "id": "minqty",
+          "title": "Min qty to qualify a line",
+          "numbered": true,
+          "fields": [
+            {
+              "kind": "switch",
+              "path": "minQtyEnabled",
+              "onLabel": "Enabled",
+              "offLabel": "Disabled — any qty counts",
+              "inline": true
+            },
+            {
+              "kind": "number",
+              "path": "minQtyValue",
+              "label": "Min qty",
+              "min": 1,
+              "visibleWhen": {
+                "path": "minQtyEnabled",
+                "truthy": true
+              }
+            },
+            {
+              "kind": "select",
+              "path": "minQtyUom",
+              "label": "UOM",
+              "visibleWhen": {
+                "path": "minQtyEnabled",
+                "truthy": true
+              },
+              "options": [
+                {
+                  "value": "case",
+                  "label": "Case"
+                },
+                {
+                  "value": "piece",
+                  "label": "Piece"
+                },
+                {
+                  "value": "carton",
+                  "label": "Carton"
+                },
+                {
+                  "value": "kg",
+                  "label": "Kg"
+                },
+                {
+                  "value": "litre",
+                  "label": "Litre"
+                },
+                {
+                  "value": "other",
+                  "label": "Other…"
+                }
+              ]
+            },
+            {
+              "kind": "text",
+              "path": "minQtyUomOther",
+              "label": "Custom UOM",
+              "placeholder": "e.g. dozen",
+              "visibleWhen": [
+                {
+                  "path": "minQtyEnabled",
+                  "truthy": true
+                },
+                {
+                  "path": "minQtyUom",
+                  "equals": "other"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "gates",
+          "id": "gates",
+          "title": "Gate conditions",
+          "numbered": true,
+          "selfId": "tlsd",
+          "enabledPath": "gatesEnabled",
+          "gatesPath": "gates",
+          "kpiNoun": "TLSD",
+          "showConsequence": true,
+          "showCollectionBasis": false
+        },
+        {
+          "kind": "key-notes",
+          "id": "notes",
+          "numbered": false,
+          "path": "keyNotes"
+        }
+      ]
+    },
+    {
+      "id": "dbb",
+      "name": "Focus SKU Distribution",
+      "tag": "Distribution",
+      "description": "Lines of client-designated focus SKUs at CRS group code level.",
+      "sample": "Min 200 · Max 800 · ₹3/line · Focus SKU list",
+      "cadenceLabel": "Monthly payout",
+      "computeId": "linesLadder",
+      "defaultConfig": {
+        "role": "mr",
+        "countingLevel": "group",
+        "minQtyEnabled": false,
+        "minQtyValue": 1,
+        "minQtyUom": "case",
+        "minLines": 200,
+        "maxLines": 800,
+        "ratePerLine": 3,
+        "rateMultiplier": 3,
+        "gatesEnabled": false,
+        "gates": [],
+        "keyNotes": [
+          "Counts lines only for client-designated focus SKUs.",
+          "Same CRS counting rules as TLSD.",
+          "Refer to the focus SKU list for eligible products."
+        ],
+        "dbbProducts": {
+          "source": "mdm",
+          "selections": []
+        }
+      },
+      "sections": [
+        {
+          "kind": "field-group",
+          "id": "role",
+          "title": "Role this template configures",
+          "numbered": true,
+          "onlyWithRoleSelector": true,
+          "fields": [
+            {
+              "kind": "segmented",
+              "path": "role",
+              "options": [
+                {
+                  "value": "mr",
+                  "label": "MR — rate × lines"
+                },
+                {
+                  "value": "aso_ase",
+                  "label": "ASO / ASE — Rate × Avg MR earning"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "field-group",
+          "id": "lines",
+          "title": "Lines-based earning (MR)",
+          "numbered": true,
+          "columns": 3,
+          "visibleWhen": {
+            "path": "role",
+            "equals": "mr"
+          },
+          "fields": [
+            {
+              "kind": "number",
+              "path": "minLines",
+              "label": "Min lines to earn"
+            },
+            {
+              "kind": "number",
+              "path": "maxLines",
+              "label": "Max lines (cap)"
+            },
+            {
+              "kind": "number",
+              "path": "ratePerLine",
+              "label": "Rate per line (₹)"
+            }
+          ]
+        },
+        {
+          "kind": "earning-ladder",
+          "id": "earn",
+          "title": "Earning potential",
+          "computeId": "linesLadder",
+          "visibleWhen": {
+            "path": "role",
+            "equals": "mr"
+          }
+        },
+        {
+          "kind": "field-group",
+          "id": "formula",
+          "title": "Earning formula (ASO / ASE)",
+          "numbered": true,
+          "visibleWhen": {
+            "path": "role",
+            "equals": "aso_ase"
+          },
+          "fields": [
+            {
+              "kind": "number",
+              "path": "rateMultiplier",
+              "label": "Earning =",
+              "suffix": "× Avg MR earning",
+              "inline": true
+            }
+          ]
+        },
+        {
+          "kind": "field-group",
+          "id": "counting",
+          "title": "Counting level",
+          "numbered": true,
+          "fields": [
+            {
+              "kind": "select",
+              "path": "countingLevel",
+              "options": [
+                {
+                  "value": "group",
+                  "label": "Group code (CRS) — variants roll up"
+                },
+                {
+                  "value": "sku",
+                  "label": "SKU code — each SKU counts separately"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "dbb-products",
+          "id": "focus",
+          "title": "Focus products",
+          "numbered": true,
+          "path": "dbbProducts"
+        },
+        {
+          "kind": "field-group",
+          "id": "minqty",
+          "title": "Min qty to qualify a line",
+          "numbered": true,
+          "fields": [
+            {
+              "kind": "switch",
+              "path": "minQtyEnabled",
+              "onLabel": "Enabled",
+              "offLabel": "Disabled — any qty counts",
+              "inline": true
+            },
+            {
+              "kind": "number",
+              "path": "minQtyValue",
+              "label": "Min qty",
+              "min": 1,
+              "visibleWhen": {
+                "path": "minQtyEnabled",
+                "truthy": true
+              }
+            },
+            {
+              "kind": "select",
+              "path": "minQtyUom",
+              "label": "UOM",
+              "visibleWhen": {
+                "path": "minQtyEnabled",
+                "truthy": true
+              },
+              "options": [
+                {
+                  "value": "case",
+                  "label": "Case"
+                },
+                {
+                  "value": "piece",
+                  "label": "Piece"
+                },
+                {
+                  "value": "carton",
+                  "label": "Carton"
+                },
+                {
+                  "value": "kg",
+                  "label": "Kg"
+                },
+                {
+                  "value": "litre",
+                  "label": "Litre"
+                },
+                {
+                  "value": "other",
+                  "label": "Other…"
+                }
+              ]
+            },
+            {
+              "kind": "text",
+              "path": "minQtyUomOther",
+              "label": "Custom UOM",
+              "placeholder": "e.g. dozen",
+              "visibleWhen": [
+                {
+                  "path": "minQtyEnabled",
+                  "truthy": true
+                },
+                {
+                  "path": "minQtyUom",
+                  "equals": "other"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "gates",
+          "id": "gates",
+          "title": "Gate conditions",
+          "numbered": true,
+          "selfId": "dbb",
+          "enabledPath": "gatesEnabled",
+          "gatesPath": "gates",
+          "kpiNoun": "DBB",
+          "showConsequence": true,
+          "showCollectionBasis": false
+        },
+        {
+          "kind": "key-notes",
+          "id": "notes",
+          "numbered": false,
+          "path": "keyNotes"
+        }
+      ]
+    },
+    {
+      "id": "qnsv",
+      "name": "Quarterly NSV Bonus",
+      "tag": "Sales Volume",
+      "description": "Cumulative quarterly Secondary NSV vs quarterly target — same slab structure as monthly NSV.",
+      "sample": "MR ₹6,000 · ASO GT + Region up to ₹21,600",
+      "cadenceLabel": "Quarterly payout",
+      "computeId": "slabEarnings",
+      "defaultConfig": {
+        "basis": "secondary",
+        "slabs": [
+          {
+            "pct": 95,
+            "ratePerPct": 320,
+            "entryPayout": 2400
+          },
+          {
+            "pct": 100,
+            "ratePerPct": 320
+          },
+          {
+            "pct": 105,
+            "ratePerPct": 200
+          },
+          {
+            "pct": 110,
+            "ratePerPct": 200
+          }
+        ],
+        "cap": {
+          "enabled": true,
+          "pct": 110
+        },
+        "gatesEnabled": false,
+        "gates": [],
+        "keyNotes": [
+          "Quarterly bonus on top of 3× monthly NSV.",
+          "Same slab structure as monthly NSV, paid at quarter end.",
+          "Computed on cumulative quarterly Secondary NSV vs quarterly target."
+        ]
+      },
+      "sections": [
+        {
+          "kind": "target-source",
+          "id": "basis",
+          "title": "Quarterly NSV Basis",
+          "numbered": true,
+          "sfaKey": "quarterly",
+          "basisPath": "basis",
+          "secondarySourcePath": "secondarySource",
+          "fileNamePath": "targetFileName",
+          "statusPath": "targetStatus"
+        },
+        {
+          "kind": "slabs",
+          "id": "slabs",
+          "title": "Slabs",
+          "numbered": true,
+          "path": "slabs",
+          "variant": "nsv",
+          "modePath": "stepMode"
+        },
+        {
+          "kind": "earning-ladder",
+          "id": "earn",
+          "title": "Earning potential across slabs",
+          "numbered": true,
+          "computeId": "slabEarnings"
+        },
+        {
+          "kind": "field-group",
+          "id": "cap",
+          "title": "Cap (maximum payable achievement)",
+          "numbered": true,
+          "fields": [
+            {
+              "kind": "switch",
+              "path": "cap.enabled",
+              "onLabel": "Cap enabled",
+              "offLabel": "No cap",
+              "inline": true
+            },
+            {
+              "kind": "number",
+              "path": "cap.pct",
+              "label": "Cap at",
+              "suffix": "% achievement",
+              "inline": true,
+              "visibleWhen": {
+                "path": "cap.enabled",
+                "truthy": true
+              }
+            }
+          ],
+          "note": "Beyond the cap, no additional reward is offered no matter how far the limit is exceeded."
+        },
+        {
+          "kind": "gates",
+          "id": "gates",
+          "title": "Gate conditions",
+          "numbered": true,
+          "selfId": "quarterly_nsv",
+          "enabledPath": "gatesEnabled",
+          "gatesPath": "gates",
+          "kpiNoun": "Quarterly NSV",
+          "showConsequence": true,
+          "showCollectionBasis": true
+        },
+        {
+          "kind": "key-notes",
+          "id": "notes",
+          "numbered": true,
+          "path": "keyNotes"
+        },
+        {
+          "kind": "info",
+          "id": "footer",
+          "text": "Payout is locked to quarter end and is on top of the 3 monthly NSV payouts within the quarter."
+        }
+      ]
+    },
+    {
+      "id": "collection",
+      "name": "Collection % of Billing",
+      "tag": "Collection",
+      "description": "Cash collected vs billed value in the period.",
+      "sample": "85% → 100% · 4 slabs · up to ₹4,000",
+      "cadenceLabel": "Monthly payout",
+      "computeId": "simpleLadder",
+      "defaultConfig": {
+        "unit": "pct",
+        "dataFeed": "sfa",
+        "slabs": [
+          {
+            "threshold": 85,
+            "payout": 800
+          },
+          {
+            "threshold": 90,
+            "payout": 1600
+          },
+          {
+            "threshold": 95,
+            "payout": 2800
+          },
+          {
+            "threshold": 100,
+            "payout": 4000
+          }
+        ],
+        "cap": {
+          "enabled": true,
+          "value": 100
+        },
+        "gatesEnabled": false,
+        "gates": [],
+        "keyNotes": [
+          "Collected ₹ in the month ÷ billed ₹ in the same month.",
+          "Cheque bounces & reversals deduct from collected amount.",
+          "Cash & UPI on the SFA app counts on the date of receipt."
+        ]
+      },
+      "sections": [
+        {
+          "kind": "slabs",
+          "id": "slabs",
+          "title": "Slabs (% achievement → ₹ payout)",
+          "numbered": true,
+          "path": "slabs",
+          "variant": "simple",
+          "unitFromPath": "unit",
+          "unitLabel": "% achievement"
+        },
+        {
+          "kind": "field-group",
+          "id": "cap",
+          "title": "Cap (maximum payable % achievement)",
+          "numbered": true,
+          "fields": [
+            {
+              "kind": "switch",
+              "path": "cap.enabled",
+              "onLabel": "Cap enabled",
+              "offLabel": "No cap",
+              "inline": true
+            },
+            {
+              "kind": "number",
+              "path": "cap.value",
+              "label": "Cap at",
+              "suffix": "% achievement",
+              "inline": true,
+              "visibleWhen": {
+                "path": "cap.enabled",
+                "truthy": true
+              }
+            }
+          ],
+          "note": "Beyond the cap, no additional reward is offered no matter how far the limit is exceeded."
+        },
+        {
+          "kind": "gates",
+          "id": "gates",
+          "title": "Gate conditions",
+          "numbered": true,
+          "selfId": "collection",
+          "enabledPath": "gatesEnabled",
+          "gatesPath": "gates",
+          "kpiNoun": "Collection % of Billing",
+          "showConsequence": false,
+          "showCollectionBasis": false
+        },
+        {
+          "kind": "key-notes",
+          "id": "notes",
+          "numbered": false,
+          "path": "keyNotes"
+        }
+      ]
+    },
+    {
+      "id": "new_outlets",
+      "name": "New Outlets Added",
+      "tag": "Coverage",
+      "description": "Brand-new outlets billed for the first time in the period.",
+      "sample": "5 → 20 outlets · up to ₹3,000",
+      "cadenceLabel": "Monthly payout",
+      "computeId": "simpleLadder",
+      "defaultConfig": {
+        "unit": "count",
+        "dataFeed": "sfa",
+        "slabs": [
+          {
+            "threshold": 5,
+            "payout": 500
+          },
+          {
+            "threshold": 10,
+            "payout": 1200
+          },
+          {
+            "threshold": 15,
+            "payout": 2000
+          },
+          {
+            "threshold": 20,
+            "payout": 3000
+          }
+        ],
+        "cap": {
+          "enabled": true,
+          "value": 25
+        },
+        "gatesEnabled": false,
+        "gates": [],
+        "keyNotes": [
+          "New = first-ever billing for an outlet code in the period.",
+          "Outlet must have at least one bill ≥ ₹250 GSV to qualify.",
+          "Re-activated outlets (>90 days dormant) do not count as new."
+        ]
+      },
+      "sections": [
+        {
+          "kind": "slabs",
+          "id": "slabs",
+          "title": "Slabs (outlets → ₹ payout)",
+          "numbered": true,
+          "path": "slabs",
+          "variant": "simple",
+          "unitFromPath": "unit",
+          "unitLabel": "outlets"
+        },
+        {
+          "kind": "field-group",
+          "id": "cap",
+          "title": "Cap (maximum payable outlets)",
+          "numbered": true,
+          "fields": [
+            {
+              "kind": "switch",
+              "path": "cap.enabled",
+              "onLabel": "Cap enabled",
+              "offLabel": "No cap",
+              "inline": true
+            },
+            {
+              "kind": "number",
+              "path": "cap.value",
+              "label": "Cap at",
+              "suffix": "outlets",
+              "inline": true,
+              "visibleWhen": {
+                "path": "cap.enabled",
+                "truthy": true
+              }
+            }
+          ],
+          "note": "Beyond the cap, no additional reward is offered no matter how far the limit is exceeded."
+        },
+        {
+          "kind": "gates",
+          "id": "gates",
+          "title": "Gate conditions",
+          "numbered": true,
+          "selfId": "new_outlets",
+          "enabledPath": "gatesEnabled",
+          "gatesPath": "gates",
+          "kpiNoun": "New Outlets Added",
+          "showConsequence": false,
+          "showCollectionBasis": false
+        },
+        {
+          "kind": "key-notes",
+          "id": "notes",
+          "numbered": false,
+          "path": "keyNotes"
+        }
+      ]
+    },
+    {
+      "id": "range_selling",
+      "name": "Range Selling %",
+      "tag": "Distribution",
+      "description": "Share of outlets billed across multiple focus categories.",
+      "sample": "40% → 85% · up to ₹3,600",
+      "cadenceLabel": "Monthly payout",
+      "computeId": "simpleLadder",
+      "defaultConfig": {
+        "unit": "pct",
+        "dataFeed": "sfa",
+        "slabs": [
+          {
+            "threshold": 40,
+            "payout": 600
+          },
+          {
+            "threshold": 55,
+            "payout": 1400
+          },
+          {
+            "threshold": 70,
+            "payout": 2400
+          },
+          {
+            "threshold": 85,
+            "payout": 3600
+          }
+        ],
+        "cap": {
+          "enabled": true,
+          "value": 100
+        },
+        "gatesEnabled": false,
+        "gates": [],
+        "keyNotes": [
+          "% of billed outlets selling ≥ N categories (default N = 3).",
+          "Measures portfolio width, not just volume.",
+          "Configure focus categories at the programme level."
+        ]
+      },
+      "sections": [
+        {
+          "kind": "slabs",
+          "id": "slabs",
+          "title": "Slabs (% achievement → ₹ payout)",
+          "numbered": true,
+          "path": "slabs",
+          "variant": "simple",
+          "unitFromPath": "unit",
+          "unitLabel": "% achievement"
+        },
+        {
+          "kind": "field-group",
+          "id": "cap",
+          "title": "Cap (maximum payable % achievement)",
+          "numbered": true,
+          "fields": [
+            {
+              "kind": "switch",
+              "path": "cap.enabled",
+              "onLabel": "Cap enabled",
+              "offLabel": "No cap",
+              "inline": true
+            },
+            {
+              "kind": "number",
+              "path": "cap.value",
+              "label": "Cap at",
+              "suffix": "% achievement",
+              "inline": true,
+              "visibleWhen": {
+                "path": "cap.enabled",
+                "truthy": true
+              }
+            }
+          ],
+          "note": "Beyond the cap, no additional reward is offered no matter how far the limit is exceeded."
+        },
+        {
+          "kind": "gates",
+          "id": "gates",
+          "title": "Gate conditions",
+          "numbered": true,
+          "selfId": "range_selling",
+          "enabledPath": "gatesEnabled",
+          "gatesPath": "gates",
+          "kpiNoun": "Range Selling %",
+          "showConsequence": false,
+          "showCollectionBasis": false
+        },
+        {
+          "kind": "key-notes",
+          "id": "notes",
+          "numbered": false,
+          "path": "keyNotes"
+        }
+      ]
+    },
+    {
+      "id": "pcc",
+      "name": "PCC — Productive Calls / Day",
+      "tag": "Productivity",
+      "description": "Average productive (billed) calls per field working day.",
+      "sample": "18 → 30 calls/day · up to ₹2,800",
+      "cadenceLabel": "Monthly payout",
+      "computeId": "simpleLadder",
+      "defaultConfig": {
+        "unit": "count",
+        "dataFeed": "sfa",
+        "slabs": [
+          {
+            "threshold": 18,
+            "payout": 400
+          },
+          {
+            "threshold": 22,
+            "payout": 1000
+          },
+          {
+            "threshold": 26,
+            "payout": 1800
+          },
+          {
+            "threshold": 30,
+            "payout": 2800
+          }
+        ],
+        "cap": {
+          "enabled": true,
+          "value": 35
+        },
+        "gatesEnabled": false,
+        "gates": [],
+        "keyNotes": [
+          "Avg productive calls = billed visits ÷ field working days.",
+          "Excludes Sundays and approved leave days.",
+          "A visit is productive only if it converts to a bill."
+        ]
+      },
+      "sections": [
+        {
+          "kind": "slabs",
+          "id": "slabs",
+          "title": "Slabs (calls / day → ₹ payout)",
+          "numbered": true,
+          "path": "slabs",
+          "variant": "simple",
+          "unitFromPath": "unit",
+          "unitLabel": "calls / day"
+        },
+        {
+          "kind": "field-group",
+          "id": "cap",
+          "title": "Cap (maximum payable calls / day)",
+          "numbered": true,
+          "fields": [
+            {
+              "kind": "switch",
+              "path": "cap.enabled",
+              "onLabel": "Cap enabled",
+              "offLabel": "No cap",
+              "inline": true
+            },
+            {
+              "kind": "number",
+              "path": "cap.value",
+              "label": "Cap at",
+              "suffix": "calls / day",
+              "inline": true,
+              "visibleWhen": {
+                "path": "cap.enabled",
+                "truthy": true
+              }
+            }
+          ],
+          "note": "Beyond the cap, no additional reward is offered no matter how far the limit is exceeded."
+        },
+        {
+          "kind": "gates",
+          "id": "gates",
+          "title": "Gate conditions",
+          "numbered": true,
+          "selfId": "pcc",
+          "enabledPath": "gatesEnabled",
+          "gatesPath": "gates",
+          "kpiNoun": "PCC — Productive Calls / Day",
+          "showConsequence": false,
+          "showCollectionBasis": false
+        },
+        {
+          "kind": "key-notes",
+          "id": "notes",
+          "numbered": false,
+          "path": "keyNotes"
+        }
+      ]
+    },
+    {
+      "id": "call_compliance",
+      "name": "Beat / Call Compliance %",
+      "tag": "Productivity",
+      "description": "Adherence to the planned daily beat / PJP.",
+      "sample": "80% → 95% · up to ₹2,000",
+      "cadenceLabel": "Monthly payout",
+      "computeId": "simpleLadder",
+      "defaultConfig": {
+        "unit": "pct",
+        "dataFeed": "sfa",
+        "slabs": [
+          {
+            "threshold": 80,
+            "payout": 500
+          },
+          {
+            "threshold": 90,
+            "payout": 1200
+          },
+          {
+            "threshold": 95,
+            "payout": 2000
+          }
+        ],
+        "cap": {
+          "enabled": true,
+          "value": 100
+        },
+        "gatesEnabled": false,
+        "gates": [],
+        "keyNotes": [
+          "Actual visited outlets ÷ planned beat outlets.",
+          "Off-route visits do not count toward compliance.",
+          "GPS-tagged within 100m of outlet location to qualify."
+        ]
+      },
+      "sections": [
+        {
+          "kind": "slabs",
+          "id": "slabs",
+          "title": "Slabs (% achievement → ₹ payout)",
+          "numbered": true,
+          "path": "slabs",
+          "variant": "simple",
+          "unitFromPath": "unit",
+          "unitLabel": "% achievement"
+        },
+        {
+          "kind": "field-group",
+          "id": "cap",
+          "title": "Cap (maximum payable % achievement)",
+          "numbered": true,
+          "fields": [
+            {
+              "kind": "switch",
+              "path": "cap.enabled",
+              "onLabel": "Cap enabled",
+              "offLabel": "No cap",
+              "inline": true
+            },
+            {
+              "kind": "number",
+              "path": "cap.value",
+              "label": "Cap at",
+              "suffix": "% achievement",
+              "inline": true,
+              "visibleWhen": {
+                "path": "cap.enabled",
+                "truthy": true
+              }
+            }
+          ],
+          "note": "Beyond the cap, no additional reward is offered no matter how far the limit is exceeded."
+        },
+        {
+          "kind": "gates",
+          "id": "gates",
+          "title": "Gate conditions",
+          "numbered": true,
+          "selfId": "call_compliance",
+          "enabledPath": "gatesEnabled",
+          "gatesPath": "gates",
+          "kpiNoun": "Beat / Call Compliance %",
+          "showConsequence": false,
+          "showCollectionBasis": false
+        },
+        {
+          "kind": "key-notes",
+          "id": "notes",
+          "numbered": false,
+          "path": "keyNotes"
+        }
+      ]
+    },
+    {
+      "id": "must_sell_sku",
+      "name": "Must-Sell SKU Achievement",
+      "tag": "Sales Volume",
+      "description": "Achievement on the mandatory must-sell SKU list.",
+      "sample": "70% → 100% · up to ₹3,000",
+      "cadenceLabel": "Monthly payout",
+      "computeId": "simpleLadder",
+      "defaultConfig": {
+        "unit": "pct",
+        "dataFeed": "sfa",
+        "slabs": [
+          {
+            "threshold": 70,
+            "payout": 700
+          },
+          {
+            "threshold": 85,
+            "payout": 1700
+          },
+          {
+            "threshold": 100,
+            "payout": 3000
+          }
+        ],
+        "cap": {
+          "enabled": true,
+          "value": 110
+        },
+        "gatesEnabled": false,
+        "gates": [],
+        "keyNotes": [
+          "Achievement on the mandatory must-sell SKU basket vs target.",
+          "Configure the must-sell list per channel / segment.",
+          "Different from focus / NPD SKUs — these are everyday hero SKUs."
+        ]
+      },
+      "sections": [
+        {
+          "kind": "slabs",
+          "id": "slabs",
+          "title": "Slabs (% achievement → ₹ payout)",
+          "numbered": true,
+          "path": "slabs",
+          "variant": "simple",
+          "unitFromPath": "unit",
+          "unitLabel": "% achievement"
+        },
+        {
+          "kind": "field-group",
+          "id": "cap",
+          "title": "Cap (maximum payable % achievement)",
+          "numbered": true,
+          "fields": [
+            {
+              "kind": "switch",
+              "path": "cap.enabled",
+              "onLabel": "Cap enabled",
+              "offLabel": "No cap",
+              "inline": true
+            },
+            {
+              "kind": "number",
+              "path": "cap.value",
+              "label": "Cap at",
+              "suffix": "% achievement",
+              "inline": true,
+              "visibleWhen": {
+                "path": "cap.enabled",
+                "truthy": true
+              }
+            }
+          ],
+          "note": "Beyond the cap, no additional reward is offered no matter how far the limit is exceeded."
+        },
+        {
+          "kind": "gates",
+          "id": "gates",
+          "title": "Gate conditions",
+          "numbered": true,
+          "selfId": "must_sell_sku",
+          "enabledPath": "gatesEnabled",
+          "gatesPath": "gates",
+          "kpiNoun": "Must-Sell SKU Achievement",
+          "showConsequence": false,
+          "showCollectionBasis": false
+        },
+        {
+          "kind": "key-notes",
+          "id": "notes",
+          "numbered": false,
+          "path": "keyNotes"
+        }
+      ]
+    },
+    {
+      "id": "ulpo",
+      "name": "ULPO — Unique Lines per Outlet",
+      "tag": "Distribution",
+      "description": "Average unique lines billed per outlet.",
+      "sample": "3 → 7 lines · up to ₹2,600",
+      "cadenceLabel": "Monthly payout",
+      "computeId": "simpleLadder",
+      "defaultConfig": {
+        "unit": "count",
+        "dataFeed": "sfa",
+        "slabs": [
+          {
+            "threshold": 3,
+            "payout": 600
+          },
+          {
+            "threshold": 5,
+            "payout": 1500
+          },
+          {
+            "threshold": 7,
+            "payout": 2600
+          }
+        ],
+        "cap": {
+          "enabled": true,
+          "value": 10
+        },
+        "gatesEnabled": false,
+        "gates": [],
+        "keyNotes": [
+          "Avg unique lines billed per billed outlet in the period.",
+          "Counted at CRS group code level.",
+          "Drives depth of sell-in per outlet, complements TLSD."
+        ]
+      },
+      "sections": [
+        {
+          "kind": "slabs",
+          "id": "slabs",
+          "title": "Slabs (lines / outlet → ₹ payout)",
+          "numbered": true,
+          "path": "slabs",
+          "variant": "simple",
+          "unitFromPath": "unit",
+          "unitLabel": "lines / outlet"
+        },
+        {
+          "kind": "field-group",
+          "id": "cap",
+          "title": "Cap (maximum payable lines / outlet)",
+          "numbered": true,
+          "fields": [
+            {
+              "kind": "switch",
+              "path": "cap.enabled",
+              "onLabel": "Cap enabled",
+              "offLabel": "No cap",
+              "inline": true
+            },
+            {
+              "kind": "number",
+              "path": "cap.value",
+              "label": "Cap at",
+              "suffix": "lines / outlet",
+              "inline": true,
+              "visibleWhen": {
+                "path": "cap.enabled",
+                "truthy": true
+              }
+            }
+          ],
+          "note": "Beyond the cap, no additional reward is offered no matter how far the limit is exceeded."
+        },
+        {
+          "kind": "gates",
+          "id": "gates",
+          "title": "Gate conditions",
+          "numbered": true,
+          "selfId": "ulpo",
+          "enabledPath": "gatesEnabled",
+          "gatesPath": "gates",
+          "kpiNoun": "ULPO — Unique Lines per Outlet",
+          "showConsequence": false,
+          "showCollectionBasis": false
+        },
+        {
+          "kind": "key-notes",
+          "id": "notes",
+          "numbered": false,
+          "path": "keyNotes"
+        }
+      ]
+    }
+  ]
+}

@@ -3,10 +3,12 @@ import { Library, ChevronDown, ChevronUp } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { KPI_TEMPLATES } from "@/components/kpi-library/registry";
+import { ConfigDrivenKpiCard } from "@/components/kpi-library/ConfigDrivenKpiCard";
+import { useKpiCatalog } from "@/components/kpi-library/useKpiCatalog";
 
 export function KpiLibraryPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const { templates } = useKpiCatalog();
 
   return (
     <div className="flex-1 overflow-auto">
@@ -31,32 +33,31 @@ export function KpiLibraryPage() {
 
       <div className="px-8 py-6">
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {KPI_TEMPLATES.map((k) => {
-            const isExpanded = expandedId === k.id;
+          {templates.map((k) => {
+            const isExpanded = expandedId === k.meta.id;
             if (isExpanded) {
-              const C = k.Component;
               return (
-                <div key={k.id} className="md:col-span-2 xl:col-span-3 space-y-2">
+                <div key={k.meta.id} className="md:col-span-2 xl:col-span-3 space-y-2">
                   <div className="flex justify-end">
                     <Button variant="ghost" size="sm" onClick={() => setExpandedId(null)} className="gap-1 text-xs">
                       <ChevronUp size={14} /> Collapse
                     </Button>
                   </div>
-                  <C hideRoleSelector />
+                  <ConfigDrivenKpiCard meta={k.meta} tag={k.tag} hideRoleSelector />
                 </div>
               );
             }
             return (
-              <button key={k.id} onClick={() => setExpandedId(k.id)} className="text-left">
+              <button key={k.meta.id} onClick={() => setExpandedId(k.meta.id)} className="text-left">
                 <Card className="p-4 h-full hover:border-primary hover:shadow-sm transition cursor-pointer">
                   <div className="flex items-start justify-between mb-2 gap-2">
-                    <h3 className="text-sm font-semibold text-foreground leading-snug">{k.name}</h3>
+                    <h3 className="text-sm font-semibold text-foreground leading-snug">{k.meta.name}</h3>
                     <ChevronDown size={14} className="text-muted-foreground shrink-0 mt-0.5" />
                   </div>
                   <Badge variant="secondary" className="text-[10px] mb-2">{k.tag}</Badge>
-                  <p className="text-xs text-muted-foreground mb-3">{k.description}</p>
+                  <p className="text-xs text-muted-foreground mb-3">{k.meta.description}</p>
                   <div className="text-[11px] text-foreground bg-muted/40 rounded px-2 py-1.5 border border-border">
-                    {k.sample}
+                    {k.meta.sample}
                   </div>
                 </Card>
               </button>

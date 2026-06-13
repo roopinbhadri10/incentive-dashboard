@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, Copy, ChevronDown, ChevronUp } from "lucide-react";
 import type { SavedProgram } from "@/lib/programStore";
 import { KPI_TEMPLATE_MAP, kpiDisplayName } from "@/components/kpi-library/registry";
+import { ConfigDrivenKpiCard } from "@/components/kpi-library/ConfigDrivenKpiCard";
 
 interface Props {
   program: SavedProgram;
@@ -58,7 +59,6 @@ export function ProgramDetailView({ program, onBack, onClone }: Props) {
               const tpl = KPI_TEMPLATE_MAP[k.templateId];
               const isOpen = expanded === k.instanceId;
               const max = tpl.maxPayout(k.config);
-              const C = tpl.Component;
               return (
                 <div key={k.instanceId} className="border border-border rounded-md">
                   <button
@@ -68,7 +68,7 @@ export function ProgramDetailView({ program, onBack, onClone }: Props) {
                     <div>
                       <div className="text-sm font-medium">{kpiDisplayName(k.templateId, k.customName)}</div>
                       <div className="text-[11px] text-muted-foreground">
-                        {k.customName?.trim() ? <span className="mr-1">{tpl.name} ·</span> : null}
+                        {k.customName?.trim() ? <span className="mr-1">{tpl.meta.name} ·</span> : null}
                         {tpl.summarize(k.config)}
                       </div>
                     </div>
@@ -79,7 +79,7 @@ export function ProgramDetailView({ program, onBack, onClone }: Props) {
                   </button>
                   {isOpen && (
                     <div className="p-3 border-t border-border">
-                      <C value={k.config} />
+                      <ConfigDrivenKpiCard meta={tpl.meta} tag={tpl.tag} value={k.config} />
                     </div>
                   )}
                 </div>
