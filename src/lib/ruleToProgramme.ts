@@ -8,11 +8,18 @@ import type { RuleRecord } from "./ruleApi";
 
 // Associates each mapped Programme with its source rule so clone/edit can rebuild
 // the full wizard state from the rule (the Programme itself is a lossy summary).
-const SOURCE_RULE = new WeakMap<Programme, RuleRecord>();
+//
+// Keyed by the stable programme id, NOT by object identity. React Query's
+// structuralSharing replaces the Programme objects this module creates with
+// merged COPIES on refetch (e.g. after publishing a new programme), so a
+// WeakMap<Programme, …> would miss for exactly those rows — sending edit/clone
+// down the lossy programmeToBuilder path (empty KPIs, a guessed role). Looking
+// up by id survives that substitution.
+const SOURCE_RULE = new Map<string, RuleRecord>();
 
 /** The rules-engine record a listed Programme was built from, if available. */
 export function getSourceRule(programme: Programme): RuleRecord | undefined {
-  return SOURCE_RULE.get(programme);
+  return programme.id ? SOURCE_RULE.get(programme.id) : undefined;
 }
 
 const STATUSES: ProgrammeStatus[] = ["draft", "active", "locked", "archived"];
@@ -78,6 +85,6 @@ export function ruleToProgramme(rule: RuleRecord): Programme {
     createdAt: rule.creationTime ?? "",
     updatedAt: rule.lastUpdateTime ?? "",
   };
-  SOURCE_RULE.set(programme, rule);
+  if (programme.id) SOURCE_RULE.set(programme.id, rule);
   return programme;
 }

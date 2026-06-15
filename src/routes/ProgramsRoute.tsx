@@ -14,6 +14,12 @@ export function ProgramsRoute() {
   // real division/channels/zones/period/KPI); fall back to the lossy Programme.
   const builderFor = (programme: Programme): BuilderState => {
     const rule = getSourceRule(programme);
+    // DEBUG (temporary): confirms the source rule is found so edit uses the rich
+    // ruleToBuilder path. Should log `true → ruleToBuilder` with roles + ≥1 KPI.
+    console.log(
+      `[edit-debug] builderFor "${programme.name}": hasSourceRule=${!!rule} →`,
+      rule ? "ruleToBuilder" : "programmeToBuilder",
+    );
     return rule ? ruleToBuilder(rule) : programmeToBuilder(programme);
   };
 

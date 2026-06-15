@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ruleToProgramme } from "@/lib/ruleToProgramme";
+import { ruleToProgramme, getSourceRule } from "@/lib/ruleToProgramme";
 import type { RuleRecord } from "@/lib/ruleApi";
 
 const baseRule: RuleRecord = {
@@ -56,5 +56,15 @@ describe("ruleToProgramme", () => {
     expect(p.name).toBe("RULE-X");
     expect(p.id).toBe("RULE-X");
     expect(p.status).toBe("active");
+  });
+
+  it("resolves the source rule by id, surviving object substitution", () => {
+    // React Query's structuralSharing hands edit/clone a COPY of the Programme,
+    // not the instance ruleToProgramme produced. getSourceRule must still find
+    // the rule via the stable id — otherwise edit drops to the lossy path.
+    const original = ruleToProgramme(baseRule);
+    const structurallySharedCopy = { ...original };
+    expect(structurallySharedCopy).not.toBe(original);
+    expect(getSourceRule(structurallySharedCopy)).toBe(baseRule);
   });
 });
