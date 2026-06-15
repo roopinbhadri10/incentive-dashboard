@@ -20,12 +20,23 @@ export interface CatalogEntry {
 }
 
 export interface KpiCatalog {
+  /** Every KPI in the catalogue, keyed by id — used to resolve any instance,
+   *  including ones hidden from the portal but already added to a programme. */
   entries: Record<string, CatalogEntry>;
-  templates: CatalogEntry[]; // ordered as in config
+  /** The portal-visible KPIs, ordered per the visibility config — what the
+   *  "Add KPI" picker and KPI library page show. */
+  templates: CatalogEntry[];
 }
 
-export function buildCatalog(metas: KpiMeta[]): KpiCatalog {
-  const templates = metas.map((meta): CatalogEntry => {
+/**
+ * Build the runtime catalog from the two KPI configs:
+ *   - `metas`      — config 1 (kpi_section_configuration): the full catalogue.
+ *   - `visibleIds` — config 2 (kpi_portal_visibility_configuration): the ordered
+ *                    subset shown on the portal. Omitted/empty → show all, in
+ *                    config order. Unknown ids are ignored.
+ */
+export function buildCatalog(metas: KpiMeta[], visibleIds?: string[]): KpiCatalog {
+  const all = metas.map((meta): CatalogEntry => {
     const compute = COMPUTE_REGISTRY[meta.computeId];
     return {
       meta,
@@ -37,7 +48,12 @@ export function buildCatalog(metas: KpiMeta[]): KpiCatalog {
   });
 
   const entries: Record<string, CatalogEntry> = {};
-  for (const t of templates) entries[t.meta.id] = t;
+  for (const t of all) entries[t.meta.id] = t;
+
+  const templates = visibleIds?.length
+    ? visibleIds.map((id) => entries[id]).filter(Boolean)
+    : all;
+
   return { entries, templates };
 }
 

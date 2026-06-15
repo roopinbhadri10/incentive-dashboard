@@ -1,0 +1,22 @@
+{
+  "domainName": "incentiveconfig",
+  "domainType": "kpi_portal_visibility_configuration",
+  "domainValue": {
+    "visibleKpiIds": [
+      "ai_recommended_order",
+      "nsv",
+      "phasing",
+      "eco",
+      "tlsd",
+      "dbb",
+      "qnsv",
+      "collection",
+      "new_outlets",
+      "range_selling",
+      "pcc",
+      "call_compliance",
+      "must_sell_sku",
+      "ulpo"
+    ]
+  }
+}
