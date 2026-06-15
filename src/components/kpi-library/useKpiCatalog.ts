@@ -27,10 +27,13 @@ export function useKpiCatalog(): KpiCatalog {
     },
     // Seed first paint from the bundled catalog, but mark it stale (updatedAt 0)
     // so the queryFn still runs on mount and pulls the live config from the API.
-    // The actual network call is deduped for the session by saleshubApi's cache.
+    // staleTime 0 → revalidate on every mount, so a cold-load that fell back to
+    // the seed (e.g. a transient config failure) self-heals on the next mount
+    // instead of sticking until a hard refresh. Successful calls are deduped for
+    // the session by saleshubApi's config cache, so revalidation is cheap.
     initialData: getKpiCatalog,
     initialDataUpdatedAt: 0,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 0,
     refetchOnWindowFocus: false,
   });
   return data;

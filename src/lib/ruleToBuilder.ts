@@ -1,19 +1,30 @@
 // Reconstruct a wizard BuilderState from a rules-engine record (GET /v1/rules),
-// used when cloning or editing a program. The forward mapping (builder → rule)
-// is lossy — the rule stores payout tiers, not the original KPI template config —
-// so the KPI is rebuilt with the matching template's default config, while
-// basics + audience are restored from the rule's actual data.
+// used when cloning or editing a program. Everything is recovered from the rule's
+// own API data — no local storage. The KPI config comes from the verbatim copy we
+// round-trip in kpiConfig.templateConfig when the engine preserves it (lossless);
+// otherwise it is rebuilt from ruleDefinition.tiers (see configFromTiers), which
+// reproduces the same payout curve generically for every KPI type. Basics +
+// audience are restored from the rule's applicabilityCriteria.
 
 import {
   emptyBuilder,
   uid,
   type BuilderState,
   type Channel,
+  type KpiScope,
   type ProgrammePeriod,
 } from "@/components/wizard/builderState";
 import { KPI_TEMPLATE_MAP, type KpiTemplateId } from "@/components/kpi-library/registry";
 import { getKpiCatalog } from "@/components/kpi-library/schema/kpiCatalog";
+import type { CatalogEntry } from "@/components/kpi-library/registry";
+import { getRoleByPayloadValue, getRoleByDesignation } from "@/lib/saleshubApi";
 import type { RuleRecord } from "./ruleApi";
+
+interface RuleTier {
+  minVal: number;
+  maxVal: number;
+  payout: number;
+}
 
 interface RuleCondition {
   property?: string;
@@ -74,8 +85,10 @@ const PERIOD_BY_FREQ: Record<string, ProgrammePeriod> = {
 
 // Reverse of the best-effort KPI-type mapping used when building the payload.
 const TEMPLATE_BY_KPI_TYPE: Record<string, KpiTemplateId> = {
+  TARGET_VS_ACHIEVEMENT: "nsv",
   SALES_TARGET: "nsv",
   COVERAGE: "eco",
+  UNIQUE_LINE_COUNT: "tlsd",
   DISTRIBUTION: "tlsd",
   COLLECTION: "collection",
   PRODUCTIVITY: "pcc",
@@ -85,13 +98,19 @@ const TEMPLATE_BY_KPI_TYPE: Record<string, KpiTemplateId> = {
 
 const TAG_PREFIX: Record<string, string> = { zone: "Zone: ", state: "State: ", city: "City: " };
 
+// Only true geography fields become region tags. Everything else in the
+// criteria — role/designation, division/outletDivision, channel, marketType,
+// outlet_type — belongs to other audience fields and must never leak into the
+// Region picker as a chip. Allowlisting (vs the old denylist) keeps any
+// future non-geo field out too.
+const GEO_PROPS = new Set(["zone", "state", "city", "geography"]);
+
 /** Geography tags (IN conditions → regions, NOT_IN → exceptions). */
 function geoTagsFor(conditions: RuleCondition[], exceptions: boolean): string[] {
   const out: string[] = [];
   for (const c of conditions) {
     if ((c.operator === "NOT_IN") !== exceptions) continue;
-    if (c.property === "channel" || c.property === "division" || c.property === "role") continue;
-    if (c.property === "outlet_type") continue;
+    if (!GEO_PROPS.has(c.property ?? "")) continue;
     const prefix = TAG_PREFIX[c.property ?? ""] ?? "";
     for (const v of c.values ?? []) out.push(prefix ? `${prefix}${v}` : v);
   }
@@ -112,6 +131,36 @@ function rolesFor(conditions: RuleCondition[]): string[] {
 }
 
 /**
+ * Recover the audience role from a rule's applicabilityCriteria, independent of
+ * the verbatim kpiConfig round-trip (which the engine does not reliably preserve
+ * — it strips templateId/templateConfig on every rule and returns a null
+ * kpiConfig for some, which is why the role section came back empty on a first
+ * edit yet filled in after a refresh re-fetched a fully-persisted record).
+ *
+ * The payload writes the role into three fields (see buildApplicabilityCriteria
+ * in rulePayload.ts). We read them most-reliable first:
+ *   1. an explicit `role` condition (older rules; foreign producers),
+ *   2. `marketType` (outlet_filters) reverse-mapped — 1:1, so this is EXACT,
+ *   3. `designation` (user_filters) reverse-mapped — many-to-one, so only when
+ *      it resolves unambiguously, else the raw designation as a visible label.
+ */
+function rolesFromCriteria(conditions: RuleCondition[]): string[] {
+  const explicit = rolesFor(conditions);
+  if (explicit.length > 0) return explicit;
+
+  const marketType = conditions.find((c) => c.property === "marketType")?.values?.[0];
+  const fromMarketType = marketType ? getRoleByPayloadValue(marketType) : "";
+  if (fromMarketType) return [fromMarketType];
+
+  const designation = conditions.find((c) => c.property === "designation")?.values?.[0];
+  if (designation) {
+    const fromDesignation = getRoleByDesignation(designation);
+    return [fromDesignation || designation];
+  }
+  return [];
+}
+
+/**
  * Recover the exact KPI template. `kpiCode` is 1:1 with a template, so prefer it
  * (matched against the catalog's meta.kpiCode). Falls back to the lossy
  * kpiCombination → template map for older rules saved without a kpiCode
@@ -128,6 +177,70 @@ function resolveTemplateId(rule: RuleRecord): KpiTemplateId {
   return TEMPLATE_BY_KPI_TYPE[rule.kpiCombination ?? ""] ?? "nsv";
 }
 
+/**
+ * Rebuild a KPI's wizard config from the payout tiers the rules API returns —
+ * the inverse of `tiersFor` in rulePayload.ts. The forward step is lossy (it
+ * keeps only the payout curve, not the exact rates/mode the user typed), so we
+ * reconstruct a config that reproduces the SAME tiers, merged over the template's
+ * defaults for fields the tiers don't carry. Generic across KPI types: the slab
+ * shape is detected from the template's default config, not hard-coded per id.
+ */
+function configFromTiers(tpl: CatalogEntry, tiers: RuleTier[] | undefined): unknown {
+  const base = tpl.defaultConfig() as Record<string, unknown>;
+  if (!tiers?.length) return base;
+
+  const defSlabs = base.slabs as Array<Record<string, unknown>> | undefined;
+  const first = defSlabs?.[0];
+  // Tiers always lead with a 0-floor tier {minVal:0, …, payout:0}; the real slabs
+  // map to the remaining tiers. A lone fallback tier leaves nothing to rebuild.
+  const slabTiers = tiers.slice(1);
+  if (Array.isArray(defSlabs) && slabTiers.length) {
+    // Percentage slabs (nsv / phasing / qnsv) — cumulative payout per % boundary.
+    if (first && "pct" in first) {
+      const slabs = slabTiers.map((t, i) => {
+        if (i === 0) return { pct: t.minVal, ratePerPct: 0, entryPayout: t.payout };
+        const prev = slabTiers[i - 1];
+        const dPct = t.minVal - prev.minVal;
+        return { pct: t.minVal, ratePerPct: dPct ? Math.round((t.payout - prev.payout) / dPct) : 0 };
+      });
+      // The entry slab's ₹/1% is unused by the payout math and unrecoverable;
+      // mirror the next slab's rate so the card shows a sensible value.
+      if (slabs.length > 1) slabs[0].ratePerPct = (slabs[1] as { ratePerPct: number }).ratePerPct;
+      return { ...base, slabs };
+    }
+    // Threshold slabs (collection / new_outlets) — absolute payout at a threshold.
+    if (first && "threshold" in first) {
+      const slabs = slabTiers.map((t) => ({ threshold: t.minVal, payout: t.payout }));
+      return { ...base, slabs };
+    }
+    // Outlet-count slabs (eco) — cumulative per-outlet rate.
+    if (first && "count" in first) {
+      let prevCum = 0;
+      let prevCount = 0;
+      const slabs = slabTiers.map((t) => {
+        const dCount = t.minVal - prevCount;
+        const ratePerOutlet = dCount ? Math.round((t.payout - prevCum) / dCount) : 0;
+        prevCum = t.payout;
+        prevCount = t.minVal;
+        return { count: t.minVal, ratePerOutlet };
+      });
+      return { ...base, slabs };
+    }
+  }
+
+  // Lines (tlsd / dbb) — min..max lines at a per-line rate; the middle tier holds
+  // [minLines, maxLines] → top payout.
+  if ("minLines" in base && "maxLines" in base) {
+    const mid = tiers[1];
+    if (mid) {
+      const ratePerLine = mid.maxVal ? Math.round(mid.payout / mid.maxVal) : (base.ratePerLine as number);
+      return { ...base, minLines: mid.minVal, maxLines: mid.maxVal, ratePerLine };
+    }
+  }
+
+  return base;
+}
+
 export function ruleToBuilder(rule: RuleRecord): BuilderState {
   const m = /^(\d{4})-(\d{2})/.exec(rule.effectiveFrom ?? "");
   const year = m ? Number(m[1]) : emptyBuilder.basics.year;
@@ -136,14 +249,41 @@ export function ruleToBuilder(rule: RuleRecord): BuilderState {
 
   const criteria = (rule.applicabilityCriteria ?? {}) as ApplicabilityCriteria;
   const conditions = normalizeConditions(criteria);
-  const roles =
-    rolesFor(conditions).length > 0
-      ? rolesFor(conditions)
-      : (rule.kpiConfig as { userFilters?: { roles?: string[] } } | undefined)?.userFilters?.roles ?? [];
+  // Prefer the verbatim role names the wizard round-trips in kpiConfig (exact,
+  // and matches the role picker's options). Fall back to recovering the role
+  // from applicabilityCriteria when the engine didn't preserve kpiConfig — see
+  // rolesFromCriteria. Either way the role section is populated whenever the
+  // rule carries the audience at all.
+  const kpiConfigRoles =
+    (rule.kpiConfig as { userFilters?: { roles?: string[] } } | undefined)?.userFilters?.roles ?? [];
+  const roles = kpiConfigRoles.length > 0 ? kpiConfigRoles : rolesFromCriteria(conditions);
   const channels = channelsFor(conditions);
 
-  const templateId = resolveTemplateId(rule);
+  // If the engine preserved the verbatim wizard config we round-trip in
+  // kpiConfig, use it (lossless). Otherwise everything is recovered from the
+  // rule's own API data — no local storage involved.
+  const ui = (rule.kpiConfig ?? {}) as {
+    templateId?: string;
+    templateConfig?: unknown;
+    customName?: string;
+    scope?: KpiScope;
+    groupIds?: string[];
+  };
+
+  // Prefer the round-tripped templateId (1:1 with the config); fall back to
+  // recovering it from kpiCode / kpiCombination.
+  const catalog = getKpiCatalog().entries;
+  const templateId: KpiTemplateId =
+    ui.templateId && catalog[ui.templateId]
+      ? (ui.templateId as KpiTemplateId)
+      : resolveTemplateId(rule);
   const tpl = KPI_TEMPLATE_MAP[templateId];
+
+  // Restore the config straight from the API: the verbatim copy if the engine
+  // kept it, else rebuilt from the payout tiers it returns. Template defaults
+  // apply only when the rule carries no tiers at all.
+  const config = ui.templateConfig ?? configFromTiers(tpl, rule.ruleDefinition?.tiers);
+  const customName = ui.customName;
 
   return {
     ...emptyBuilder,
@@ -162,6 +302,15 @@ export function ruleToBuilder(rule: RuleRecord): BuilderState {
       geographyExceptions: geoTagsFor(conditions, true),
     },
     channels: channels.length ? channels : emptyBuilder.channels,
-    programKpis: [{ templateId, instanceId: uid("kpi"), config: tpl.defaultConfig() }],
+    programKpis: [
+      {
+        templateId,
+        instanceId: uid("kpi"),
+        config,
+        ...(customName ? { customName } : {}),
+        ...(ui.scope ? { scope: ui.scope } : {}),
+        ...(ui.groupIds ? { groupIds: ui.groupIds } : {}),
+      },
+    ],
   };
 }

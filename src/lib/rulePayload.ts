@@ -11,7 +11,7 @@ import type {
   ProgrammePeriod,
 } from "@/components/wizard/builderState";
 import { KPI_TEMPLATE_MAP, type KpiTemplateId } from "@/components/kpi-library/registry";
-import { getRolePayloadValue } from "@/lib/saleshubApi";
+import { getRolePayloadValue, getRoleDesignation } from "@/lib/saleshubApi";
 import { computeSlabEarnings, type NsvSlab } from "@/components/kpi-library/nsvTypes";
 
 /* ─── Payload shape (mirrors the documented /v1/rules contract) ──────────── */
@@ -78,6 +78,15 @@ export interface RuleApiPayload {
     userFilters: { roles: string[]; properties: Record<string, string[]> };
     scopeConfig: { productFilter: ProductFilter };
     calculationConfig: { aggregationFunction: string; metricField: string };
+    // UI round-trip fields — carry the full wizard KPI config verbatim so edit /
+    // clone can restore the exact values the user entered, for every KPI type.
+    // (ruleDefinition.tiers above is a lossy projection that can't be reversed
+    // faithfully.) The engine ignores these; they survive the POST → GET trip.
+    templateId: string;
+    templateConfig: unknown;
+    customName?: string;
+    scope?: unknown;
+    groupIds?: string[];
   };
 }
 
@@ -106,12 +115,12 @@ const MONTHS_BY_PERIOD: Record<ProgrammePeriod, number> = {
 
 // Best-effort mapping of an FMCG KPI template onto the engine's KPI type enum.
 const KPI_TYPE_BY_TEMPLATE: Partial<Record<KpiTemplateId, string>> = {
-  nsv: "SALES_TARGET",
+  nsv: "TARGET_VS_ACHIEVEMENT",
   phasing: "SALES_TARGET",
   qnsv: "SALES_TARGET",
   eco: "COVERAGE",
   new_outlets: "COVERAGE",
-  tlsd: "DISTRIBUTION",
+  tlsd: "UNIQUE_LINE_COUNT",
   dbb: "DISTRIBUTION",
   ulpo: "DISTRIBUTION",
   range_selling: "DISTRIBUTION",
@@ -162,14 +171,13 @@ function buildApplicabilityCriteria(
   audience: AudienceV2State,
   channels: string[]
 ): ApplicabilityCriteria {
-  // user_filters — who: division, role, and geography (zone / state / city).
+  // user_filters — who: role and geography (zone / state / city).
   const userRules: FilterRule[] = [];
-  if (audience.division) {
-    userRules.push(toFilterRule("division", [audience.division]));
-  }
   const role = audience.roles?.[0];
   if (role) {
-    userRules.push(toFilterRule("role", [role]));
+    // Map the selected role onto its API designation (e.g. all *MR roles → "mr").
+    const designation = getRoleDesignation(role) || role;
+    userRules.push(toFilterRule("designation", [designation]));
   }
   for (const [field, values] of Object.entries(parseGeoTags(audience.geographies))) {
     userRules.push(toFilterRule(field, values, "IN"));
@@ -178,15 +186,18 @@ function buildApplicabilityCriteria(
     userRules.push(toFilterRule(field, values, "NOT_IN"));
   }
 
-  // outlet_filters — where: trade channels, and the role-specific outlet_type
-  // sourced from the role config (role_payload_value_configuration).
+  // outlet_filters — where: division, trade channels, and the role-specific
+  // marketType sourced from the role config (role_payload_value_configuration).
   const outletRules: FilterRule[] = [];
+  if (audience.division) {
+    outletRules.push(toFilterRule("division", [audience.division]));
+  }
   if (channels?.length) {
     outletRules.push(toFilterRule("channel", channels, "IN"));
   }
-  const outletType = role ? getRolePayloadValue(role) : "";
-  if (outletType) {
-    outletRules.push(toFilterRule("outlet_type", [outletType]));
+  const marketType = role ? getRolePayloadValue(role) : "";
+  if (marketType) {
+    outletRules.push(toFilterRule("marketType", [marketType]));
   }
 
   return {
@@ -314,7 +325,8 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
   return programKpis.map((kpi, i) => {
     const kpiType = KPI_TYPE_BY_TEMPLATE[kpi.templateId] ?? "SALES_TARGET";
     const meta = KPI_TEMPLATE_MAP[kpi.templateId]?.meta;
-    const baseKpiName = meta?.name ?? kpi.templateId;
+    // Engine base KPI name from the KPI config (falls back to the display name).
+    const baseKpiName = meta?.baseKpiName ?? meta?.name ?? kpi.templateId;
     // Engine KPI code from the KPI config (falls back to the template id).
     const kpiCode = meta?.kpiCode ?? kpi.templateId;
 
@@ -341,6 +353,11 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
         userFilters: { roles, properties: {} },
         scopeConfig: { productFilter: emptyProductFilter() },
         calculationConfig: { aggregationFunction: "SUM", metricField: "sales_amount" },
+        templateId: kpi.templateId,
+        templateConfig: kpi.config,
+        ...(kpi.customName ? { customName: kpi.customName } : {}),
+        ...(kpi.scope ? { scope: kpi.scope } : {}),
+        ...(kpi.groupIds ? { groupIds: kpi.groupIds } : {}),
       },
     };
   });

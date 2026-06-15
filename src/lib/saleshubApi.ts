@@ -243,9 +243,13 @@ export const CONSEQUENCE_DOMAIN_TYPE = "gate_rule_consequence_configuration";
 export const ROLES_DOMAIN_NAME = "incentiveconfig";
 export const ROLES_DOMAIN_TYPE = "role_configuration";
 
-// Domain coordinates for the role → API value (outlet_type) mapping config.
+// Domain coordinates for the role → API value (marketType) mapping config.
 export const ROLE_PAYLOAD_VALUE_DOMAIN_NAME = "incentiveconfig";
 export const ROLE_PAYLOAD_VALUE_DOMAIN_TYPE = "role_payload_value_configuration";
+
+// Domain coordinates for the role → user_filters designation mapping config.
+export const ROLE_DESIGNATION_DOMAIN_NAME = "incentiveconfig";
+export const ROLE_DESIGNATION_DOMAIN_TYPE = "role_designation_configuration";
 
 /** domainValue shape for the roles config. */
 export interface RolesConfigValue {
@@ -255,14 +259,21 @@ export interface RolesConfigValue {
 /** domainValue shape for the role → API value mapping config. */
 export type RolePayloadValues = Record<string, string>;
 
+/** domainValue shape for the role → designation mapping config. */
+export type RoleDesignationValues = Record<string, string>;
+
 // Session cache: (domainName::domainType) → in-flight or resolved config.
 const configCache = new Map<string, Promise<ConfigFeature | null>>();
 
 /**
  * Fetch the configuration object for a (domainName, domainType) pair from the
- * /ui-configs endpoint. Cached for the session — the first call hits the API,
- * subsequent calls reuse the same promise. Returns null if the config is
- * missing or the API call fails.
+ * /ui-configs endpoint. Successful results are cached for the session — the
+ * first call hits the API, subsequent calls reuse the same promise. Returns
+ * null if the config is missing or the API call fails; a *failure* is NOT
+ * cached — the entry is evicted so the next call retries. (Otherwise a single
+ * transient failure on cold load — e.g. before auth is ready — would poison the
+ * cache for the whole session, leaving roles / KPI catalog / channels empty
+ * until a hard refresh.)
  */
 export async function fetchConfigFeature<TValue = unknown>(
   domainName: string,
@@ -283,6 +294,8 @@ export async function fetchConfigFeature<TValue = unknown>(
       return (await res.json()) as ConfigFeature;
     } catch (err) {
       console.warn(`fetchConfigFeature(${key}): API failed —`, err);
+      // Evict so a transient failure doesn't stick for the rest of the session.
+      configCache.delete(key);
       return null;
     }
   })();
@@ -356,6 +369,66 @@ export async function fetchRolePayloadValues(): Promise<RolePayloadValues> {
  */
 export function getRolePayloadValue(role: string): string {
   return rolePayloadValuesCache[role] ?? "";
+}
+
+/**
+ * Reverse of getRolePayloadValue: recover the role from its API value
+ * (marketType, e.g. "URBAN" → "Urban MR"). This mapping is 1:1, so it gives the
+ * EXACT role — unlike the designation mapping, where every MR role collapses to
+ * "mr". Used on edit/clone to rebuild the audience role from the rule's
+ * outlet_filters when the verbatim kpiConfig.userFilters.roles wasn't preserved
+ * by the engine. Returns "" if unknown or the mapping hasn't loaded yet.
+ */
+export function getRoleByPayloadValue(marketType: string): string {
+  if (!marketType) return "";
+  for (const [role, value] of Object.entries(rolePayloadValuesCache)) {
+    if (value === marketType) return role;
+  }
+  return "";
+}
+
+// Synchronous mirror of the last-fetched role → designation mapping, so payload
+// building (which is synchronous) can resolve values without awaiting. Warmed
+// by fetchRoleDesignations().
+let roleDesignationsCache: RoleDesignationValues = {};
+
+/**
+ * Fetch the role → user_filters designation mapping from config. Returns the
+ * config's domainValue object, or {} if none is configured / the API call
+ * fails. Also warms the synchronous cache read by getRoleDesignation().
+ */
+export async function fetchRoleDesignations(): Promise<RoleDesignationValues> {
+  const config = await fetchConfigFeature<RoleDesignationValues>(
+    ROLE_DESIGNATION_DOMAIN_NAME,
+    ROLE_DESIGNATION_DOMAIN_TYPE
+  );
+  const values = config?.domainValue;
+  roleDesignationsCache = values && typeof values === "object" ? values : {};
+  return roleDesignationsCache;
+}
+
+/**
+ * Synchronous lookup of a role's designation from the last fetched mapping.
+ * Returns "" if the role is unknown or the mapping hasn't loaded yet.
+ */
+export function getRoleDesignation(role: string): string {
+  return roleDesignationsCache[role] ?? "";
+}
+
+/**
+ * Reverse of getRoleDesignation: recover the role from its designation. The
+ * forward mapping is many-to-one (e.g. Urban/Rural/Hybrid MR all → "mr"), so
+ * the reverse is only meaningful when exactly ONE role maps to the designation —
+ * otherwise we'd guess the wrong role. Returns "" when ambiguous, unknown, or
+ * the mapping hasn't loaded yet. Used as a last resort on edit/clone, after the
+ * exact sources (kpiConfig roles, marketType) have been tried.
+ */
+export function getRoleByDesignation(designation: string): string {
+  if (!designation) return "";
+  const matches = Object.entries(roleDesignationsCache)
+    .filter(([, value]) => value === designation)
+    .map(([role]) => role);
+  return matches.length === 1 ? matches[0] : "";
 }
 
 /** Zone → State → City tree, keyed by display name (matches the picker's shape). */

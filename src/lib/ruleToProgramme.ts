@@ -28,12 +28,14 @@ function extractDivision(criteria: unknown): Channel | undefined {
   const c = criteria as
     | {
         user_filters?: { rules?: Array<{ field?: string; value?: unknown }> };
+        outlet_filters?: { rules?: Array<{ field?: string; value?: unknown }> };
         conditions?: Array<{ property?: string; values?: unknown[] }>;
         divisions?: unknown[];
       }
     | undefined;
-  // Grouped shape: division lives in user_filters.
-  const fromGroup = c?.user_filters?.rules?.find((r) => r?.field === "division")?.value;
+  // Grouped shape: division lives in outlet_filters (older rules: user_filters).
+  const groupRules = [...(c?.outlet_filters?.rules ?? []), ...(c?.user_filters?.rules ?? [])];
+  const fromGroup = groupRules.find((r) => r?.field === "division")?.value;
   const fromGroupVal = Array.isArray(fromGroup) ? fromGroup[0] : fromGroup;
   const fromCondition = c?.conditions?.find((x) => x?.property === "division")?.values?.[0];
   const v = (fromGroupVal ?? fromCondition ?? c?.divisions?.[0]) as string | undefined;

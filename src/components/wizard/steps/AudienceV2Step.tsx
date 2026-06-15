@@ -11,6 +11,7 @@ import type { AudienceV2State, Channel } from "../builderState";
 import {
   fetchProgramRoles,
   fetchRolePayloadValues,
+  fetchRoleDesignations,
   fetchGeographyTree,
   type GeographyTree,
 } from "@/lib/saleshubApi";
@@ -333,6 +334,8 @@ export function AudienceV2Step({ value, onChange }: Props) {
       .finally(() => setRolesLoading(false));
     // Warm the role → API value mapping so payload building can resolve it.
     fetchRolePayloadValues().catch(() => { /* non-fatal */ });
+    // Warm the role → designation mapping for user_filters.
+    fetchRoleDesignations().catch(() => { /* non-fatal */ });
   }, []);
 
   useEffect(() => {

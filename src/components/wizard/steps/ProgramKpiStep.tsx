@@ -187,17 +187,16 @@ function AddKpiSheet({
     if (!selectedTemplate) return;
     if (targetExistingTemplates.has(selectedTemplate)) return; // already in target bucket
     const tpl = KPI_TEMPLATE_MAP[selectedTemplate];
-    const buildOne = (channel?: string): ProgramKpi => ({
+    // One KPI instance scoped to all selected channels (empty = all channels) —
+    // selecting multiple channels must not duplicate the KPI.
+    const newKpi: ProgramKpi = {
       templateId: selectedTemplate,
       instanceId: uid("inst"),
       config: tpl.defaultConfig(),
       groupIds: groupIds.length ? [...groupIds] : undefined,
-      scope: channel ? { channels: [channel] } : undefined,
-    });
-    const newKpis = selectedChannels.length > 0
-      ? selectedChannels.map((c) => buildOne(c))
-      : [buildOne()];
-    onAdd(newKpis);
+      scope: selectedChannels.length > 0 ? { channels: [...selectedChannels] } : undefined,
+    };
+    onAdd([newKpi]);
     reset();
     onOpenChange(false);
   };
@@ -263,7 +262,7 @@ function AddKpiSheet({
                 ) : (
                   <>
                     <p className="text-[11px] text-muted-foreground mt-1">
-                      Leave empty to apply to <span className="font-medium">all channels</span>, or pick one or more to create a separate KPI instance per channel.
+                      Leave empty to apply to <span className="font-medium">all channels</span>, or pick one or more to scope this KPI to those channels.
                     </p>
                     <div className="flex flex-wrap gap-1.5 mt-2">
                       {channels.map((c) => {
@@ -280,7 +279,7 @@ function AddKpiSheet({
                     {selectedChannels.length > 1 && (
                       <div className="text-[11px] text-muted-foreground mt-2 flex items-center gap-1">
                         <Info size={11} />
-                        Will create <span className="font-medium text-foreground">{selectedChannels.length}</span> KPI instances — one per selected channel.
+                        One KPI scoped to <span className="font-medium text-foreground">{selectedChannels.length}</span> channels.
                       </div>
                     )}
                   </>

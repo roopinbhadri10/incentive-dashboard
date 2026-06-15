@@ -51,6 +51,56 @@ describe("ruleToBuilder", () => {
     expect(ruleToBuilder(rule).programKpis[0].templateId).toBe("phasing");
   });
 
+  it("recovers the role from applicabilityCriteria when the engine dropped kpiConfig", () => {
+    // The engine doesn't reliably preserve the verbatim kpiConfig (it returns a
+    // null kpiConfig for some rules), so the role must be recoverable from the
+    // applicabilityCriteria the engine always keeps. An explicit `role` filter
+    // is read directly.
+    const rule: RuleRecord = {
+      ruleName: "June Incentive",
+      calculationFrequency: "MONTHLY",
+      kpiCombination: "UNIQUE_LINE_COUNT",
+      effectiveFrom: "2026-06-01",
+      kpiConfig: null as unknown as RuleRecord["kpiConfig"],
+      applicabilityCriteria: {
+        user_filters: { operator: "AND", rules: [{ field: "role", op: "EQUALS", value: "MR" }] },
+        outlet_filters: { operator: "AND", rules: [{ field: "marketType", op: "EQUALS", value: "RURAL" }] },
+      },
+    };
+    const b = ruleToBuilder(rule);
+    expect(b.audience.roles).toEqual(["MR"]);
+    // Role-related fields (marketType) must NOT leak into the Region picker.
+    expect(b.audience.geographies).toEqual([]);
+    expect(b.audience.geographyExceptions).toEqual([]);
+  });
+
+  it("falls back to the raw designation so the role section is never empty", () => {
+    // When the role lives only in the (lossy, many-to-one) `designation` filter
+    // and the role-config mappings haven't loaded, surface the raw value rather
+    // than leaving the audience role blank.
+    const rule: RuleRecord = {
+      ruleName: "Designation only",
+      calculationFrequency: "MONTHLY",
+      kpiCombination: "TARGET_VS_ACHIEVEMENT",
+      effectiveFrom: "2026-06-01",
+      applicabilityCriteria: {
+        user_filters: {
+          operator: "AND",
+          rules: [
+            { field: "designation", op: "EQUALS", value: "mr" },
+            { field: "geography", op: "EQUALS", value: "All India" },
+          ],
+        },
+        outlet_filters: { operator: "AND", rules: [{ field: "marketType", op: "EQUALS", value: "URBAN" }] },
+      },
+    };
+    const b = ruleToBuilder(rule);
+    expect(b.audience.roles).toEqual(["mr"]);
+    // Only the real geography ("All India") becomes a region tag — not the
+    // designation or marketType.
+    expect(b.audience.geographies).toEqual(["All India"]);
+  });
+
   it("supports the legacy { zones, channels } criteria shape and maps the KPI type", () => {
     const rule: RuleRecord = {
       ruleName: "Coverage Push",

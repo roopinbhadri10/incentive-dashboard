@@ -176,6 +176,10 @@ export interface KpiMeta {
   name: string;
   /** Engine KPI code sent in the rule payload's `ruleDefinition.kpiCode`. */
   kpiCode?: string;
+  /** Engine base KPI name sent in the rule payload's `kpiConfig.baseKpiName`
+   *  (e.g. "TARGET_VS_ACHIEVEMENT" for NSV, "UNIQUE_LINE_COUNT" for Lines Sold).
+   *  Falls back to `name` when not configured. */
+  baseKpiName?: string;
   /** Segregation / group this KPI belongs to (e.g. "Sales Volume"). */
   tag: string;
   description: string;

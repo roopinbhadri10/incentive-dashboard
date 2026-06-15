@@ -35,23 +35,29 @@ describe("buildRulePayloads", () => {
     expect(rule.ruleName).toBe("June Sales Target Incentive");
     expect(rule.ruleType).toBe("SLAB");
     expect(rule.calculationFrequency).toBe("MONTHLY");
-    expect(rule.kpiCombination).toBe("SALES_TARGET");
+    expect(rule.kpiCombination).toBe("TARGET_VS_ACHIEVEMENT");
     expect(rule.effectiveFrom).toBe("2026-06-01");
     expect(rule.effectiveTill).toBe("2026-06-30");
     expect(rule.ruleCode).toBe("RULE-2026-06-01");
     expect(rule.status).toBe("DRAFT");
 
+    // user_filters — who: the role (as its designation; with no role-designation
+    // config loaded in tests, it falls back to the raw role name) and geography.
     expect(rule.applicabilityCriteria.user_filters).toEqual({
       operator: "AND",
       rules: [
-        { field: "division", op: "EQUALS", value: "CCD" },
-        { field: "role", op: "EQUALS", value: "MR" },
+        { field: "designation", op: "EQUALS", value: "MR" },
         { field: "zone", op: "EQUALS", value: "North" },
       ],
     });
+    // outlet_filters — where: division then trade channels (marketType is omitted
+    // when no role-payload-value config is loaded).
     expect(rule.applicabilityCriteria.outlet_filters).toEqual({
       operator: "AND",
-      rules: [{ field: "channel", op: "IN", value: ["GT", "MT"] }],
+      rules: [
+        { field: "division", op: "EQUALS", value: "CCD" },
+        { field: "channel", op: "IN", value: ["GT", "MT"] },
+      ],
     });
 
     // Entry slab is the minimum achievement; tiers are cumulative payouts.
@@ -66,7 +72,7 @@ describe("buildRulePayloads", () => {
     ]);
 
     expect(rule.kpiConfig.userFilters.roles).toEqual(["MR", "ASO"]);
-    expect(rule.kpiConfig.name).toBe("June Sales Target Incentive – SALES_TARGET");
+    expect(rule.kpiConfig.name).toBe("June Sales Target Incentive – TARGET_VS_ACHIEVEMENT");
   });
 
   it("emits one rule per KPI with unique rule codes for multi-KPI programs", () => {
