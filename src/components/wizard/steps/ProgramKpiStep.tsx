@@ -20,6 +20,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
   DropdownMenuSeparator, DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { ProgramKpi, KpiGroup, AudienceV2State } from "../builderState";
 import { AudienceContextChip } from "../AudienceContextChip";
@@ -168,12 +169,20 @@ function AddKpiSheet({
     setGroupIds(defaultGroupId ? [defaultGroupId] : []);
   };
 
-  const ungroupedExistingTemplates = new Set(
-    value.filter((k) => !k.groupIds || k.groupIds.length === 0).map((k) => k.templateId),
-  );
+  // Templates that already occupy the current target bucket(s): the Ungrouped
+  // bucket when no group is selected, otherwise any of the selected groups
+  // (a new KPI is shared across all selected groups, so a clash in any one of
+  // them makes the add a duplicate). Used to disable them in the list below.
+  const targetExistingTemplates = useMemo(() => {
+    const inTarget = groupIds.length === 0
+      ? (k: ProgramKpi) => !k.groupIds || k.groupIds.length === 0
+      : (k: ProgramKpi) => (k.groupIds ?? []).some((g) => groupIds.includes(g));
+    return new Set(value.filter(inTarget).map((k) => k.templateId));
+  }, [value, groupIds]);
 
   const handleAdd = () => {
     if (!selectedTemplate) return;
+    if (targetExistingTemplates.has(selectedTemplate)) return; // already in target bucket
     const tpl = KPI_TEMPLATE_MAP[selectedTemplate];
     const buildOne = (channel?: string): ProgramKpi => ({
       templateId: selectedTemplate,
@@ -314,7 +323,7 @@ function AddKpiSheet({
                       No KPIs match your search.
                     </div>
                   ) : filteredTemplates.map((t) => {
-                    const disabled = groupIds.length === 0 && ungroupedExistingTemplates.has(t.id);
+                    const disabled = targetExistingTemplates.has(t.id);
                     const active = selectedTemplate === t.id;
                     return (
                       <button key={t.id} onClick={() => !disabled && setSelectedTemplate(t.id)} disabled={disabled}
@@ -334,7 +343,7 @@ function AddKpiSheet({
                               )}
                             </div>
                             <div className="text-xs text-muted-foreground mt-1 leading-snug">{t.description}</div>
-                            {disabled && <div className="text-[10px] text-primary mt-1">Already added (ungrouped)</div>}
+                            {disabled && <div className="text-[10px] text-primary mt-1">Already added {groupIds.length === 0 ? "(ungrouped)" : "to selected group"}</div>}
                           </div>
                           <Badge variant="secondary" className="text-[10px] shrink-0 mt-0.5">{t.tag}</Badge>
                         </div>
@@ -624,6 +633,36 @@ export function ProgramKpiStep({
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null); // group id or "__ungrouped__"
 
+  // Two KPIs collide inside a group when they share a template and the same
+  // channel scope (per-channel fan-out of one template is still distinct).
+  const dupKey = (k: ProgramKpi) =>
+    `${k.templateId}|${[...(k.scope?.channels ?? [])].sort().join(",")}`;
+
+  // True if a KPI belongs to the given destination bucket — a real group id, or
+  // `null` for the "Ungrouped" bucket (no group memberships).
+  const inBucket = (k: ProgramKpi, destGroupId: string | null) =>
+    destGroupId === null
+      ? !k.groupIds || k.groupIds.length === 0
+      : (k.groupIds ?? []).includes(destGroupId);
+
+  // True if dropping `src` into the destination bucket (a group, or the
+  // Ungrouped bucket) would duplicate a KPI that's already there. Reordering
+  // within a bucket src already belongs to is allowed — we only guard genuine
+  // moves into a new one.
+  const wouldDuplicateInGroup = (src: ProgramKpi, destGroupId: string | null | undefined) => {
+    const dest = destGroupId ?? null;
+    if (inBucket(src, dest)) return false; // already a member — reorder, don't block
+    const key = dupKey(src);
+    return value.some(
+      (k) => k.instanceId !== src.instanceId && inBucket(k, dest) && dupKey(k) === key,
+    );
+  };
+
+  const duplicateToast = (src: ProgramKpi, destGroupId: string | null) => {
+    const where = destGroupId === null ? "ungrouped" : "this group";
+    toast.error(`${kpiDisplayName(src.templateId, src.customName)} is already ${where}.`);
+  };
+
   const moveKpi = (
     srcId: string,
     opts: { beforeId?: string; afterId?: string; intoGroupId?: string | null },
@@ -636,6 +675,11 @@ export function ProgramKpiStep({
       const ref = value.find((k) => k.instanceId === refId);
       if (!ref) return;
       // Adopt the target row's group context (single-group semantics for DnD).
+      const destGroupId = ref.groupIds?.[0] ?? null;
+      if (wouldDuplicateInGroup(src, destGroupId)) {
+        duplicateToast(src, destGroupId);
+        return;
+      }
       const updated: ProgramKpi = { ...src, groupIds: ref.groupIds ? [...ref.groupIds] : undefined };
       const idx = without.findIndex((k) => k.instanceId === refId);
       const insertAt = opts.beforeId ? idx : idx + 1;
@@ -643,6 +687,10 @@ export function ProgramKpiStep({
       return;
     }
     if (opts.intoGroupId !== undefined) {
+      if (wouldDuplicateInGroup(src, opts.intoGroupId)) {
+        duplicateToast(src, opts.intoGroupId ?? null);
+        return;
+      }
       const updated: ProgramKpi = { ...src, groupIds: opts.intoGroupId ? [opts.intoGroupId] : undefined };
       onChange([...without, updated]);
     }
@@ -687,6 +735,11 @@ export function ProgramKpiStep({
   };
 
   const toggleGroupMembership = (kpiId: string, groupId: string, on: boolean) => {
+    const src = value.find((k) => k.instanceId === kpiId);
+    if (on && src && wouldDuplicateInGroup(src, groupId)) {
+      toast.error(`${kpiDisplayName(src.templateId, src.customName)} is already in this group.`);
+      return;
+    }
     onChange(value.map((k) => {
       if (k.instanceId !== kpiId) return k;
       const cur = k.groupIds ?? [];
