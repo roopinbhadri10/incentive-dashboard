@@ -9,12 +9,13 @@ const SALESHUB_BASE_URL =
   import.meta.env.VITE_SALESHUB_BASE_URL ?? "https://api.salescodeai.com";
 
 const SALESHUB_TOKEN =
-  import.meta.env.VITE_SALESHUB_TOKEN ?? "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzYWxlc2RiLWF1dGgiLCJpYXQiOjE3ODEzMzA0NzQsImV4cCI6MTc4MTM2NjQ3NCwidGVuYW50X2lkIjoienlkdXMiLCJ1c2VyX2lkIjo3MDU0MDMsInVzZXJuYW1lIjoic2FsZXNodWJAc2FsZXNjb2RlLmFpIiwib3JnX3R5cGUiOm51bGwsIm9yZ19jb2RlIjpudWxsLCJkZWZhdWx0X2NyZWRzIjp0cnVlLCJyb2xlcyI6WyJURU5BTlRfQURNSU4iXSwianRpIjoiNTJjMmVjZDUtNmJhNC00OTEwLWFjN2ItM2UzNjNkMzNlNDBkIn0.k8TXs8mIIp9tLeD8WhPF4J2CoNpSJ8erVLmBBhAOfEs"
-  // "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzYWxlc2RiLWF1dGgiLCJpYXQiOjE3ODEyNzk3NzYsImV4cCI6MTc4MTMxNTc3NiwidGVuYW50X2lkIjoiRW1hbWkiLCJ1c2VyX2lkIjoxNDcwNzgsInVzZXJuYW1lIjoiRW1hbWkiLCJvcmdfdHlwZSI6bnVsbCwib3JnX2NvZGUiOm51bGwsImRlZmF1bHRfY3JlZHMiOnRydWUsInJvbGVzIjpbIlRFTkFOVF9BRE1JTiJdLCJqdGkiOiJlYTYxOWMxNC00MTQ0LTQxM2EtOWM4Ny0xODJlZDE5MmEzMDIifQ.gpSpEl8-Iq-VaMnIw_TBw3iXtyLuJtnC_kpOjQLKFLc";
-
+  import.meta.env.VITE_SALESHUB_TOKEN ??
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzYWxlc2RiLWF1dGgiLCJpYXQiOjE3ODE0OTc4MTYsImV4cCI6MTc4MTUzMzgxNiwidGVuYW50X2lkIjoienlkdXMiLCJ1c2VyX2lkIjo3MDU0MDMsInVzZXJuYW1lIjoic2FsZXNodWJAc2FsZXNjb2RlLmFpIiwib3JnX3R5cGUiOm51bGwsIm9yZ19jb2RlIjpudWxsLCJkZWZhdWx0X2NyZWRzIjp0cnVlLCJyb2xlcyI6WyJURU5BTlRfQURNSU4iXSwianRpIjoiM2EzYmI3OTgtMmZhZS00NTliLWFmY2ItMzU5ZGYxZWM1YzE4In0.XGANvNGlQl73vfUepH1tY3zqsKeH8V1RDaEBYkPjhPc"
+//  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzYWxlc2RiLWF1dGgiLCJpYXQiOjE3ODE0OTc4NDYsImV4cCI6MTc4MTUzMzg0NiwidGVuYW50X2lkIjoiRW1hbWkiLCJ1c2VyX2lkIjoxNDcwNzgsInVzZXJuYW1lIjoiRW1hbWkiLCJvcmdfdHlwZSI6bnVsbCwib3JnX2NvZGUiOm51bGwsImRlZmF1bHRfY3JlZHMiOnRydWUsInJvbGVzIjpbIlRFTkFOVF9BRE1JTiJdLCJqdGkiOiJmNDVmYzliNS01NDkzLTQxNTEtYmU5Mi0xZDNjZDA2ODhiNDMifQ.DB29Yz4gmDPUyW64s_5c2j1Ayc2Qijm5Sjn0EY14v-w"
 const SALESHUB_TENANT_ID =
-  import.meta.env.VITE_SALESHUB_TENANT_ID ?? "zydus"
-  //"Emami";
+  import.meta.env.VITE_SALESHUB_TENANT_ID ?? 
+  "zydus"
+  // "Emami";
 
 function saleshubHeaders(): HeadersInit {
   return {
@@ -53,15 +54,18 @@ export async function fetchOutletStats(): Promise<OutletStats> {
 }
 
 /**
- * Fetch channel names from outlet stats.
- * Filters out numeric-only and "UNKNOWN" entries that are junk data.
+ * Fetch channel names from outlet stats. If the API call fails (token expired,
+ * network, etc.) we return an empty list so the picker shows no options rather
+ * than the raw API error.
  */
 export async function fetchChannelNames(): Promise<string[]> {
-  const stats = await fetchOutletStats();
-  //  return stats.byChannel
-  //   .filter((c) => c.channel && !/^\d+$/.test(c.channel) && c.channel.toUpperCase() !== "UNKNOWN")
-  //   .map((c) => c.channel);
-   return stats.byChannel.map((c) => c.channel);
+  try {
+    const stats = await fetchOutletStats();
+    return stats.byChannel.map((c) => c.channel);
+  } catch (err) {
+    console.warn("fetchChannelNames: API failed, returning no channels —", err);
+    return [];
+  }
 }
 
 export interface SaleshubRole {
@@ -90,10 +94,19 @@ export async function fetchRoles(): Promise<SaleshubRole[]> {
   return roles.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Convenience — returns just the role name strings. */
+/**
+ * Convenience — returns just the role name strings. If the live API call fails
+ * (token expired, network, etc.) we return an empty list so the role picker
+ * shows no options rather than the raw API error.
+ */
 export async function fetchRoleNames(): Promise<string[]> {
-  const roles = await fetchRoles();
-  return roles.map((r) => r.name);
+  try {
+    const roles = await fetchRoles();
+    return roles.map((r) => r.name);
+  } catch (err) {
+    console.warn("fetchRoleNames: API failed, returning no roles —", err);
+    return [];
+  }
 }
 
 // ── Geography / location master data ─────────────────────────────────────────
@@ -166,38 +179,31 @@ export async function fetchLocationTree(parentCode: string): Promise<LocationTre
 
 // ── Config / feature master data ─────────────────────────────────────────────
 //
-// SalesHub stores tenant-level configuration as "features", each scoped by a
-// (domainName, domainType) pair and carrying an array of `domainValues`. The
-// incentive builder reads several such configs (metric groups, etc.) from this
-// single endpoint. Responses are cached per (domainName, domainType) so each
-// config is fetched at most once per session.
+// Tenant-level UI configuration lives in the incentive config service, each
+// config scoped by a (domainName, domainType) pair and carrying a `domainValue`
+// payload. The incentive builder reads several such configs (gate metric
+// groups, consequence options, …) from the /ui-configs endpoint, which returns
+// a single config object per (domainName, domainType). Responses are cached for
+// the session so each config is fetched at most once.
 //
-// NOTE: the real config endpoint is not wired up yet, so fetchConfigFeatures
-// falls back to a bundled dummy payload (DUMMY_CONFIG) shaped exactly like the
-// live API. When the API is ready, point CONFIG_ENDPOINT at it and drop the
-// dummy fallback — callers don't change.
+// Override the config service base URL via VITE_INCENTIVE_CONFIG_BASE_URL.
 
-const CONFIG_ENDPOINT = "/config/features";
+const INCENTIVE_CONFIG_BASE_URL =
+  import.meta.env.VITE_INCENTIVE_CONFIG_BASE_URL ??
+  "https://incentive-uat.salescode.ai/v1";
 
-/** A single configuration feature, scoped by (domainName, domainType). */
+const CONFIG_ENDPOINT = "/ui-configs";
+
+/** A single configuration object, scoped by (domainName, domainType). */
 export interface ConfigFeature<TValue = unknown> {
-  createdBy?: string | null;
-  modifiedBy?: string | null;
-  creationTime?: string | null;
-  lastModifiedTime?: string | null;
-  lob?: string | null;
   id?: string;
-  activeStatus?: string;
-  version?: number;
-  source?: string | null;
+  createdBy?: string | null;
+  updatedBy?: string | null;
+  creationTime?: string | null;
+  lastUpdateTime?: string | null;
   domainName: string;
   domainType: string;
-  description?: string | null;
-  domainValues: TValue[];
-}
-
-export interface ConfigResponse {
-  features: ConfigFeature[];
+  domainValue: TValue;
 }
 
 /** Metric groups for gate rules, keyed by group name → list of metric labels. */
@@ -218,185 +224,75 @@ export interface ConsequenceOption {
 }
 export type ConsequenceOptions = ConsequenceOption[];
 
+/** domainValue shape for the consequence-options config. */
+export interface ConsequenceConfigValue {
+  options: ConsequenceOption[];
+}
+
 // Domain coordinates for the gate-rule consequence options config.
 export const CONSEQUENCE_DOMAIN_NAME = "incentiveconfig";
 export const CONSEQUENCE_DOMAIN_TYPE = "gate_rule_consequence_configuration";
 
-// Dummy payload standing in for the live config API, in the exact wire shape.
-// Each requested (domainName, domainType) maps to a ConfigResponse.
-const DUMMY_CONFIG: ConfigResponse = {
-  features: [
-    {
-      createdBy: "system",
-      modifiedBy: "system",
-      creationTime: null,
-      lastModifiedTime: null,
-      lob: null,
-      id: "dummy-metric-groups",
-      activeStatus: "active",
-      version: 1,
-      source: null,
-      domainName: METRIC_GROUPS_DOMAIN_NAME,
-      domainType: METRIC_GROUPS_DOMAIN_TYPE,
-      description: "Gate-rule metric groups shown in the condition picker",
-      domainValues: [
-        {
-          attendance: [
-            "Attendance %",
-            "Absent days",
-            "Present days",
-            "Working days",
-            "Consecutive absent days",
-            "Leave without approval",
-          ],
-          collection: [
-            "Collection % of billing",
-            "Overdue amount (₹)",
-            "Overdue > 30 days %",
-            "Overdue > 60 days %",
-            "Overdue > 90 days %",
-            "Avg. credit days",
-            "Cheque bounce count",
-          ],
-          productivity: [
-            "Visits per day (PCC)",
-            "Beat plan adherence %",
-            "Productive call %",
-            "Visit strike rate %",
-            "App login days",
-            "Calls made",
-            "Orders booked per day",
-            "Drop size (₹/order)",
-          ],
-          compliance: [
-            "GPS / geo-tag compliance %",
-            "DAR / daily report submission %",
-            "Order punching SLA %",
-            "Photo capture compliance %",
-            "Planogram compliance %",
-            "Training module completion %",
-            "Selfie / attendance photo compliance %",
-          ],
-          distribution: [
-            "ECO — Effective coverage outlets",
-            "New outlets added",
-            "Outlet retention %",
-            "ULPO — Unique lines per outlet",
-            "Range selling %",
-            "Must-sell SKU strike rate %",
-            "Focus SKU / NPD billing",
-          ],
-          sales_hygiene: [
-            "Sales return %",
-            "Damaged / expired stock %",
-            "Scheme / claim accuracy %",
-            "Primary vs secondary variance %",
-            "Stock-out days",
-          ],
-        },
-      ],
-    },
-    {
-      createdBy: "system",
-      modifiedBy: "system",
-      creationTime: null,
-      lastModifiedTime: null,
-      lob: null,
-      id: "dummy-consequence-options",
-      activeStatus: "active",
-      version: 1,
-      source: null,
-      domainName: CONSEQUENCE_DOMAIN_NAME,
-      domainType: CONSEQUENCE_DOMAIN_TYPE,
-      description: "Gate-rule consequence options shown in the picker",
-      domainValues: [
-        [
-          { kind: "zero-all", label: "Rep earns ₹0 for this entire programme" },
-          { kind: "zero-kpis", label: "Rep earns ₹0 for specific KPIs" },
-          { kind: "reduce", label: "Rep earns only {percent}% of payout for {scope}" },
-          { kind: "custom", label: "Custom description" },
-        ] as ConsequenceOption[],
-      ],
-    },
-  ],
-};
-
-// Session cache: (domainName::domainType) → in-flight or resolved features.
-const configCache = new Map<string, Promise<ConfigFeature[]>>();
+// Session cache: (domainName::domainType) → in-flight or resolved config.
+const configCache = new Map<string, Promise<ConfigFeature | null>>();
 
 /**
- * Fetch the active configuration features for a (domainName, domainType) pair.
- * Cached for the session — the first call hits the API (or dummy fallback),
- * subsequent calls reuse the same promise.
+ * Fetch the configuration object for a (domainName, domainType) pair from the
+ * /ui-configs endpoint. Cached for the session — the first call hits the API,
+ * subsequent calls reuse the same promise. Returns null if the config is
+ * missing or the API call fails.
  */
-export async function fetchConfigFeatures<TValue = unknown>(
+export async function fetchConfigFeature<TValue = unknown>(
   domainName: string,
-  domainType: string,
-  /**
-   * Dummy features to serve when the API is unavailable or returns nothing for
-   * this domain. Defaults to the bundled DUMMY_CONFIG. Callers with large config
-   * payloads (e.g. KPI sections) pass their own so the data lives next to its
-   * feature code instead of in this generic client.
-   */
-  dummyFeatures?: ConfigFeature[]
-): Promise<ConfigFeature<TValue>[]> {
+  domainType: string
+): Promise<ConfigFeature<TValue> | null> {
   const key = `${domainName}::${domainType}`;
   const cached = configCache.get(key);
-  if (cached) return cached as Promise<ConfigFeature<TValue>[]>;
+  if (cached) return cached as Promise<ConfigFeature<TValue> | null>;
 
-  const matches = (f: ConfigFeature) =>
-    f.domainName === domainName && f.domainType === domainType;
-  const fallback = () => (dummyFeatures ?? DUMMY_CONFIG.features).filter(matches);
-
-  const load = (async (): Promise<ConfigFeature[]> => {
+  const load = (async (): Promise<ConfigFeature | null> => {
     const qs = new URLSearchParams({ domainName, domainType });
     try {
-      const res = await fetch(`${SALESHUB_BASE_URL}${CONFIG_ENDPOINT}?${qs}`, {
-        headers: saleshubHeaders(),
-      });
+      const res = await fetch(
+        `${INCENTIVE_CONFIG_BASE_URL}${CONFIG_ENDPOINT}?${qs}`,
+        { headers: { accept: "application/json" } }
+      );
       if (!res.ok) throw new Error(`config responded ${res.status}`);
-      const data = (await res.json()) as ConfigResponse;
-      const matched = (data.features ?? []).filter(matches);
-      // API reachable but this domain isn't configured yet → use the dummy.
-      return matched.length ? matched : fallback();
-    } catch {
-      // API not available yet — serve the bundled dummy config in wire shape.
-      return fallback();
+      return (await res.json()) as ConfigFeature;
+    } catch (err) {
+      console.warn(`fetchConfigFeature(${key}): API failed —`, err);
+      return null;
     }
   })();
 
   configCache.set(key, load);
-  return load as Promise<ConfigFeature<TValue>[]>;
+  return load as Promise<ConfigFeature<TValue> | null>;
 }
 
 /**
- * Fetch the gate-rule metric groups from config. Returns the first active
- * feature's domainValues object, or {} if none is configured.
+ * Fetch the gate-rule metric groups from config. Returns the config's
+ * domainValue object, or {} if none is configured / the API call fails.
  */
 export async function fetchMetricGroups(): Promise<MetricGroups> {
-  const features = await fetchConfigFeatures<MetricGroups>(
+  const config = await fetchConfigFeature<MetricGroups>(
     METRIC_GROUPS_DOMAIN_NAME,
     METRIC_GROUPS_DOMAIN_TYPE
   );
-  const active =
-    features.find((f) => f.activeStatus === "active") ?? features[0];
-  const values = active?.domainValues?.[0];
+  const values = config?.domainValue;
   return values && typeof values === "object" ? values : {};
 }
 
 /**
- * Fetch the gate-rule consequence options from config. Returns the first active
- * feature's domainValues array, or [] if none is configured.
+ * Fetch the gate-rule consequence options from config. Returns the config's
+ * domainValue.options array, or [] if none is configured / the API call fails.
  */
 export async function fetchConsequenceOptions(): Promise<ConsequenceOptions> {
-  const features = await fetchConfigFeatures<ConsequenceOptions>(
+  const config = await fetchConfigFeature<ConsequenceConfigValue>(
     CONSEQUENCE_DOMAIN_NAME,
     CONSEQUENCE_DOMAIN_TYPE
   );
-  const active =
-    features.find((f) => f.activeStatus === "active") ?? features[0];
-  const values = active?.domainValues?.[0];
-  return Array.isArray(values) ? values : [];
+  const options = config?.domainValue?.options;
+  return Array.isArray(options) ? options : [];
 }
 
 /** Zone → State → City tree, keyed by display name (matches the picker's shape). */
@@ -406,11 +302,20 @@ export type GeographyTree = Record<string, Record<string, string[]>>;
  * Build the Zone → State → City geography tree from SalesHub master data.
  * Regions (level 2) become zones; each region's subtree supplies its states
  * (level 3) and their districts (level 4) as the selectable "cities".
+ *
+ * If the API call fails (token expired, network, etc.) we return an empty tree
+ * so the picker shows no options rather than the raw API error.
  */
 export async function fetchGeographyTree(): Promise<GeographyTree> {
-  const regions = (await fetchLocations({ level: REGION_LEVEL })).filter(
-    (l) => String(l.level) === String(REGION_LEVEL) && l.active
-  );
+  let regions: SaleshubLocation[];
+  try {
+    regions = (await fetchLocations({ level: REGION_LEVEL })).filter(
+      (l) => String(l.level) === String(REGION_LEVEL) && l.active
+    );
+  } catch (err) {
+    console.warn("fetchGeographyTree: API failed, returning empty tree —", err);
+    return {};
+  }
 
   const tree: GeographyTree = {};
   await Promise.all(
