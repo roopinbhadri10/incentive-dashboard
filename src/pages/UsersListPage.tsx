@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/table";
 import { ChevronDown, Download, Upload, Trash2, Users, FileSpreadsheet } from "lucide-react";
 import { toast } from "sonner";
-import { PROGRAM_ROLES } from "@/components/wizard/builderState";
+import { fetchProgramRoles } from "@/lib/saleshubApi";
 import {
   addBatch,
   batchesForRole,
@@ -97,7 +97,8 @@ function parseFile(file: File): Promise<UserListUser[]> {
 }
 
 export function UsersListPage() {
-  const [role, setRole] = useState<string>(PROGRAM_ROLES[0]);
+  const [roles, setRoles] = useState<string[]>([]);
+  const [role, setRole] = useState<string>("");
   const [batches, setBatches] = useState<UserListBatch[]>(() => listBatches());
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -105,6 +106,15 @@ export function UsersListPage() {
     const h = () => setBatches(listBatches());
     window.addEventListener("userLists:change", h);
     return () => window.removeEventListener("userLists:change", h);
+  }, []);
+
+  useEffect(() => {
+    fetchProgramRoles()
+      .then((r) => {
+        setRoles(r);
+        setRole((cur) => cur || r[0] || "");
+      })
+      .catch(() => { /* leave roles empty */ });
   }, []);
 
   const roleBatches = batchesForRole(role);
@@ -158,7 +168,7 @@ export function UsersListPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {PROGRAM_ROLES.map((r) => (
+                  {roles.map((r) => (
                     <SelectItem key={r} value={r}>{r}</SelectItem>
                   ))}
                 </SelectContent>

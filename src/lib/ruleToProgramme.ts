@@ -23,13 +23,20 @@ function toStatus(raw: string | undefined, isActive: boolean | undefined): Progr
   return isActive === false ? "archived" : "draft";
 }
 
-/** Pull the CCD/HCD division out of either applicabilityCriteria shape, if present. */
+/** Pull the CCD/HCD division out of any applicabilityCriteria shape, if present. */
 function extractDivision(criteria: unknown): Channel | undefined {
   const c = criteria as
-    | { conditions?: Array<{ property?: string; values?: unknown[] }>; divisions?: unknown[] }
+    | {
+        user_filters?: { rules?: Array<{ field?: string; value?: unknown }> };
+        conditions?: Array<{ property?: string; values?: unknown[] }>;
+        divisions?: unknown[];
+      }
     | undefined;
+  // Grouped shape: division lives in user_filters.
+  const fromGroup = c?.user_filters?.rules?.find((r) => r?.field === "division")?.value;
+  const fromGroupVal = Array.isArray(fromGroup) ? fromGroup[0] : fromGroup;
   const fromCondition = c?.conditions?.find((x) => x?.property === "division")?.values?.[0];
-  const v = (fromCondition ?? c?.divisions?.[0]) as string | undefined;
+  const v = (fromGroupVal ?? fromCondition ?? c?.divisions?.[0]) as string | undefined;
   return v === "CCD" || v === "HCD" ? v : undefined;
 }
 

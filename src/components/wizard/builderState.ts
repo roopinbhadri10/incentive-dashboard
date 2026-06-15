@@ -233,14 +233,9 @@ export const emptyBuilder: BuilderState = {
   gates: [],
 };
 
-// ─── Fixed roles for new program flow ─────────────────────────────────────
-export const PROGRAM_ROLES = [
-  "Urban Retail MR",
-  "Urban Wholesale MR",
-  "Rural MR (Super Stockist)",
-  "ASO/ASE",
-] as const;
-export type ProgramRole = typeof PROGRAM_ROLES[number];
+// ─── Roles ─────────────────────────────────────────────────────────────────
+// Roles are loaded from the /ui-configs endpoint (domainType
+// "role_configuration") via fetchProgramRoles() — no hardcoded list.
 
 export function isManagerRole(role: string) {
   return role.startsWith("ASO");

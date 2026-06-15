@@ -19,11 +19,48 @@ interface RuleCondition {
   operator?: string;
   values?: string[];
 }
+interface FilterRule {
+  field?: string;
+  op?: string;
+  value?: string | string[];
+}
+interface FilterGroup {
+  operator?: string;
+  rules?: FilterRule[];
+}
 interface ApplicabilityCriteria {
+  // Current grouped shape (user_filters / outlet_filters).
+  user_filters?: FilterGroup;
+  outlet_filters?: FilterGroup;
+  // Legacy flat conditions shape.
   conditions?: RuleCondition[];
+  // Oldest shape.
   zones?: string[];
   channels?: string[];
   divisions?: string[];
+}
+
+/** Flatten any supported applicabilityCriteria shape into a list of conditions. */
+function normalizeConditions(criteria: ApplicabilityCriteria): RuleCondition[] {
+  // Grouped shape — merge both filter groups into a flat condition list.
+  if (criteria.user_filters || criteria.outlet_filters) {
+    const out: RuleCondition[] = [];
+    for (const group of [criteria.user_filters, criteria.outlet_filters]) {
+      for (const r of group?.rules ?? []) {
+        const values = Array.isArray(r.value) ? r.value : r.value != null ? [r.value] : [];
+        out.push({ property: r.field, operator: r.op === "NOT_IN" ? "NOT_IN" : "IN", values });
+      }
+    }
+    return out;
+  }
+  // Legacy flat conditions.
+  if (Array.isArray(criteria.conditions)) return criteria.conditions;
+  // Oldest zones/channels/divisions arrays.
+  const out: RuleCondition[] = [];
+  for (const z of criteria.zones ?? []) out.push({ property: "zone", operator: "IN", values: [z] });
+  for (const c of criteria.channels ?? []) out.push({ property: "channel", operator: "IN", values: [c] });
+  for (const d of criteria.divisions ?? []) out.push({ property: "division", operator: "IN", values: [d] });
+  return out;
 }
 
 const PERIOD_BY_FREQ: Record<string, ProgrammePeriod> = {
@@ -47,34 +84,30 @@ const TEMPLATE_BY_KPI_TYPE: Record<string, KpiTemplateId> = {
 
 const TAG_PREFIX: Record<string, string> = { zone: "Zone: ", state: "State: ", city: "City: " };
 
-/** Geography tags (IN conditions → regions, NOT_IN → exceptions), both criteria shapes. */
-function geoTagsFor(criteria: ApplicabilityCriteria, exceptions: boolean): string[] {
+/** Geography tags (IN conditions → regions, NOT_IN → exceptions). */
+function geoTagsFor(conditions: RuleCondition[], exceptions: boolean): string[] {
   const out: string[] = [];
-  if (Array.isArray(criteria.conditions)) {
-    for (const c of criteria.conditions) {
-      if ((c.operator === "NOT_IN") !== exceptions) continue;
-      if (c.property === "channel" || c.property === "division") continue;
-      const prefix = TAG_PREFIX[c.property ?? ""] ?? "";
-      for (const v of c.values ?? []) out.push(prefix ? `${prefix}${v}` : v);
-    }
-  } else if (!exceptions) {
-    for (const v of criteria.zones ?? []) out.push(`Zone: ${v}`);
+  for (const c of conditions) {
+    if ((c.operator === "NOT_IN") !== exceptions) continue;
+    if (c.property === "channel" || c.property === "division" || c.property === "role") continue;
+    if (c.property === "outlet_type") continue;
+    const prefix = TAG_PREFIX[c.property ?? ""] ?? "";
+    for (const v of c.values ?? []) out.push(prefix ? `${prefix}${v}` : v);
   }
   return out;
 }
 
-function channelsFor(criteria: ApplicabilityCriteria): string[] {
-  if (Array.isArray(criteria.conditions)) {
-    return criteria.conditions.find((c) => c.property === "channel" && c.operator !== "NOT_IN")?.values ?? [];
-  }
-  return criteria.channels ?? [];
+function channelsFor(conditions: RuleCondition[]): string[] {
+  return conditions.find((c) => c.property === "channel" && c.operator !== "NOT_IN")?.values ?? [];
 }
 
-function divisionFor(criteria: ApplicabilityCriteria): Channel | undefined {
-  const v = Array.isArray(criteria.conditions)
-    ? criteria.conditions.find((c) => c.property === "division")?.values?.[0]
-    : criteria.divisions?.[0];
+function divisionFor(conditions: RuleCondition[]): Channel | undefined {
+  const v = conditions.find((c) => c.property === "division")?.values?.[0];
   return v === "CCD" || v === "HCD" ? v : undefined;
+}
+
+function rolesFor(conditions: RuleCondition[]): string[] {
+  return conditions.find((c) => c.property === "role")?.values ?? [];
 }
 
 export function ruleToBuilder(rule: RuleRecord): BuilderState {
@@ -84,9 +117,12 @@ export function ruleToBuilder(rule: RuleRecord): BuilderState {
   const period = PERIOD_BY_FREQ[rule.calculationFrequency ?? ""] ?? "monthly";
 
   const criteria = (rule.applicabilityCriteria ?? {}) as ApplicabilityCriteria;
+  const conditions = normalizeConditions(criteria);
   const roles =
-    (rule.kpiConfig as { userFilters?: { roles?: string[] } } | undefined)?.userFilters?.roles ?? [];
-  const channels = channelsFor(criteria);
+    rolesFor(conditions).length > 0
+      ? rolesFor(conditions)
+      : (rule.kpiConfig as { userFilters?: { roles?: string[] } } | undefined)?.userFilters?.roles ?? [];
+  const channels = channelsFor(conditions);
 
   const templateId = TEMPLATE_BY_KPI_TYPE[rule.kpiCombination ?? ""] ?? "nsv";
   const tpl = KPI_TEMPLATE_MAP[templateId];
@@ -102,10 +138,10 @@ export function ruleToBuilder(rule: RuleRecord): BuilderState {
     },
     audience: {
       ...emptyBuilder.audience,
-      division: divisionFor(criteria),
+      division: divisionFor(conditions),
       roles,
-      geographies: geoTagsFor(criteria, false),
-      geographyExceptions: geoTagsFor(criteria, true),
+      geographies: geoTagsFor(conditions, false),
+      geographyExceptions: geoTagsFor(conditions, true),
     },
     channels: channels.length ? channels : emptyBuilder.channels,
     programKpis: [{ templateId, instanceId: uid("kpi"), config: tpl.defaultConfig() }],

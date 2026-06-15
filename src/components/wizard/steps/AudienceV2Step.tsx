@@ -8,7 +8,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ChevronDown, Info, X, Database, ChevronRight, Check, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import type { AudienceV2State, Channel } from "../builderState";
-import { fetchRoleNames, fetchGeographyTree, type GeographyTree } from "@/lib/saleshubApi";
+import {
+  fetchProgramRoles,
+  fetchRolePayloadValues,
+  fetchGeographyTree,
+  type GeographyTree,
+} from "@/lib/saleshubApi";
 
 interface Props {
   value: AudienceV2State;
@@ -322,10 +327,12 @@ export function AudienceV2Step({ value, onChange }: Props) {
   const [geoError, setGeoError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchRoleNames()
+    fetchProgramRoles()
       .then(setRoles)
       .catch((e: Error) => setRolesError(e.message))
       .finally(() => setRolesLoading(false));
+    // Warm the role → API value mapping so payload building can resolve it.
+    fetchRolePayloadValues().catch(() => { /* non-fatal */ });
   }, []);
 
   useEffect(() => {
@@ -425,7 +432,7 @@ export function AudienceV2Step({ value, onChange }: Props) {
                 <Loader2 size={13} className="animate-spin" /> Loading roles…
               </span>
             ) : (
-              <SelectValue placeholder="Select a role from master data" />
+              <SelectValue placeholder="Select a role" />
             )}
           </SelectTrigger>
           <SelectContent>
@@ -442,7 +449,7 @@ export function AudienceV2Step({ value, onChange }: Props) {
         </Select>
         <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
           <Database size={11} className="mt-0.5 shrink-0" />
-          Roles synced from client master data. Create one programme per role.
+          Roles synced from config. Create one programme per role.
         </p>
       </Card>
 

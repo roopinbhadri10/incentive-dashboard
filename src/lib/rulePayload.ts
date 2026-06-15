@@ -11,14 +11,33 @@ import type {
   ProgrammePeriod,
 } from "@/components/wizard/builderState";
 import { KPI_TEMPLATE_MAP, type KpiTemplateId } from "@/components/kpi-library/registry";
+import { getRolePayloadValue } from "@/lib/saleshubApi";
 import { computeSlabEarnings, type NsvSlab } from "@/components/kpi-library/nsvTypes";
 
 /* ─── Payload shape (mirrors the documented /v1/rules contract) ──────────── */
 
-export interface RuleCondition {
-  property: string;
-  operator: "IN" | "NOT_IN";
-  values: string[];
+/** A single filter rule. Scalar `value` for EQUALS, array for IN / NOT_IN. */
+export interface FilterRule {
+  field: string;
+  op: "EQUALS" | "IN" | "NOT_IN";
+  value: string | string[];
+}
+
+/** A group of filter rules combined by a boolean operator. */
+export interface FilterGroup {
+  operator: "AND" | "OR";
+  rules: FilterRule[];
+}
+
+/**
+ * Applicability split into two groups:
+ *  - user_filters:   who (division, role, geography — zone/state/city).
+ *  - outlet_filters: where (trade channel, and the role-specific outlet_type
+ *    sourced from the role config).
+ */
+export interface ApplicabilityCriteria {
+  user_filters: FilterGroup;
+  outlet_filters: FilterGroup;
 }
 
 export interface RuleTier {
@@ -48,9 +67,9 @@ export interface RuleApiPayload {
   priority: number;
   status: string;
   isActive: boolean;
-  applicabilityCriteria: { operator: "AND" | "OR"; conditions: RuleCondition[] };
+  applicabilityCriteria: ApplicabilityCriteria;
   kpiConditions: { minAchievementPct: number };
-  ruleDefinition: { payoutType: string; tiers: RuleTier[] };
+  ruleDefinition: { kpiCode: string; payoutType: string; tiers: RuleTier[] };
   kpiConfig: {
     kpiType: string;
     name: string;
@@ -133,23 +152,47 @@ function parseGeoTags(tags: string[] | undefined): Record<string, string[]> {
   return out;
 }
 
-function applicabilityConditions(audience: AudienceV2State, channels: string[]): RuleCondition[] {
-  const conditions: RuleCondition[] = [];
-  // "Select Division" field (CCD / HCD) from the Audience step.
+/** One value → EQUALS scalar; many → IN/NOT_IN array. */
+function toFilterRule(field: string, values: string[], op: "IN" | "NOT_IN" = "IN"): FilterRule {
+  if (op === "IN" && values.length === 1) return { field, op: "EQUALS", value: values[0] };
+  return { field, op, value: values };
+}
+
+function buildApplicabilityCriteria(
+  audience: AudienceV2State,
+  channels: string[]
+): ApplicabilityCriteria {
+  // user_filters — who: division, role, and geography (zone / state / city).
+  const userRules: FilterRule[] = [];
   if (audience.division) {
-    conditions.push({ property: "division", operator: "IN", values: [audience.division] });
+    userRules.push(toFilterRule("division", [audience.division]));
   }
-  // Trade channels (General Trade, Modern Trade, …) defined for the programme.
+  const role = audience.roles?.[0];
+  if (role) {
+    userRules.push(toFilterRule("role", [role]));
+  }
+  for (const [field, values] of Object.entries(parseGeoTags(audience.geographies))) {
+    userRules.push(toFilterRule(field, values, "IN"));
+  }
+  for (const [field, values] of Object.entries(parseGeoTags(audience.geographyExceptions))) {
+    userRules.push(toFilterRule(field, values, "NOT_IN"));
+  }
+
+  // outlet_filters — where: trade channels, and the role-specific outlet_type
+  // sourced from the role config (role_payload_value_configuration).
+  const outletRules: FilterRule[] = [];
   if (channels?.length) {
-    conditions.push({ property: "channel", operator: "IN", values: channels });
+    outletRules.push(toFilterRule("channel", channels, "IN"));
   }
-  for (const [property, values] of Object.entries(parseGeoTags(audience.geographies))) {
-    conditions.push({ property, operator: "IN", values });
+  const outletType = role ? getRolePayloadValue(role) : "";
+  if (outletType) {
+    outletRules.push(toFilterRule("outlet_type", [outletType]));
   }
-  for (const [property, values] of Object.entries(parseGeoTags(audience.geographyExceptions))) {
-    conditions.push({ property, operator: "NOT_IN", values });
-  }
-  return conditions;
+
+  return {
+    user_filters: { operator: "AND", rules: userRules },
+    outlet_filters: { operator: "AND", rules: outletRules },
+  };
 }
 
 // Loose view over the heterogeneous KPI configs — only the slab-ish fields we read.
@@ -263,23 +306,23 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
   const { basics, audience, channels, gates, programKpis } = state;
   const { from, till } = periodRange(basics);
   const ruleName = basics.name?.trim() || "Untitled programme";
-  const applicabilityCriteria = {
-    operator: "AND" as const,
-    conditions: applicabilityConditions(audience, channels ?? []),
-  };
+  const applicabilityCriteria = buildApplicabilityCriteria(audience, channels ?? []);
   const roles = audience.roles ?? [];
   const calculationFrequency = FREQ_BY_PERIOD[basics.period] ?? "MONTHLY";
   const multi = programKpis.length > 1;
 
   return programKpis.map((kpi, i) => {
     const kpiType = KPI_TYPE_BY_TEMPLATE[kpi.templateId] ?? "SALES_TARGET";
-    const baseKpiName = KPI_TEMPLATE_MAP[kpi.templateId]?.meta.name ?? kpi.templateId;
+    const meta = KPI_TEMPLATE_MAP[kpi.templateId]?.meta;
+    const baseKpiName = meta?.name ?? kpi.templateId;
+    // Engine KPI code from the KPI config (falls back to the template id).
+    const kpiCode = meta?.kpiCode ?? kpi.templateId;
 
     return {
       lobId: LOB_ID,
       ruleName,
       ruleCode: `RULE-${from}${multi ? `-${i + 1}` : ""}`,
-      ruleType: "TIERED",
+      ruleType: "SLAB",
       calculationFrequency,
       kpiCombination: kpiType,
       effectiveFrom: from,
@@ -289,7 +332,7 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
       isActive: true,
       applicabilityCriteria,
       kpiConditions: { minAchievementPct: minAchievementPct(kpi.templateId, kpi.config, gates) },
-      ruleDefinition: { payoutType: "CASH", tiers: tiersFor(kpi.templateId, kpi.config) },
+      ruleDefinition: { kpiCode, payoutType: "CASH", tiers: tiersFor(kpi.templateId, kpi.config) },
       kpiConfig: {
         kpiType,
         name: `${ruleName} – ${kpiType}`,

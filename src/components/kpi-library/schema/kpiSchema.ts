@@ -174,6 +174,8 @@ export type SectionSchema =
 export interface KpiMeta {
   id: string;
   name: string;
+  /** Engine KPI code sent in the rule payload's `ruleDefinition.kpiCode`. */
+  kpiCode?: string;
   /** Segregation / group this KPI belongs to (e.g. "Sales Volume"). */
   tag: string;
   description: string;

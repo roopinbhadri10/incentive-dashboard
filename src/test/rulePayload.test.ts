@@ -33,7 +33,7 @@ describe("buildRulePayloads", () => {
     const rule = rules[0];
 
     expect(rule.ruleName).toBe("June Sales Target Incentive");
-    expect(rule.ruleType).toBe("TIERED");
+    expect(rule.ruleType).toBe("SLAB");
     expect(rule.calculationFrequency).toBe("MONTHLY");
     expect(rule.kpiCombination).toBe("SALES_TARGET");
     expect(rule.effectiveFrom).toBe("2026-06-01");
@@ -41,14 +41,22 @@ describe("buildRulePayloads", () => {
     expect(rule.ruleCode).toBe("RULE-2026-06-01");
     expect(rule.status).toBe("DRAFT");
 
-    expect(rule.applicabilityCriteria.conditions).toEqual([
-      { property: "division", operator: "IN", values: ["CCD"] },
-      { property: "channel", operator: "IN", values: ["GT", "MT"] },
-      { property: "zone", operator: "IN", values: ["North"] },
-    ]);
+    expect(rule.applicabilityCriteria.user_filters).toEqual({
+      operator: "AND",
+      rules: [
+        { field: "division", op: "EQUALS", value: "CCD" },
+        { field: "role", op: "EQUALS", value: "MR" },
+        { field: "zone", op: "EQUALS", value: "North" },
+      ],
+    });
+    expect(rule.applicabilityCriteria.outlet_filters).toEqual({
+      operator: "AND",
+      rules: [{ field: "channel", op: "IN", value: ["GT", "MT"] }],
+    });
 
     // Entry slab is the minimum achievement; tiers are cumulative payouts.
     expect(rule.kpiConditions.minAchievementPct).toBe(95);
+    expect(rule.ruleDefinition.kpiCode).toBe("NSV");
     expect(rule.ruleDefinition.tiers).toEqual([
       { minVal: 0, maxVal: 95, payout: 0 },
       { minVal: 95, maxVal: 100, payout: 2400 },

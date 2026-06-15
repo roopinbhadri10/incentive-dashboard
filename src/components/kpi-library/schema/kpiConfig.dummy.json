@@ -3,6 +3,7 @@
     {
       "id": "ai_recommended_order",
       "name": "AI Recommended Order",
+      "kpiCode": "AI_RECOMMENDED_ORDER",
       "tag": "AI Recommendations",
       "description": "Rewards reps for fulfilling the SFA one-click order (Cross-sell + Recover SKU).",
       "sample": "Cross-sell + Recover · % accepted · up to ₹4,000",
@@ -97,6 +98,7 @@
     {
       "id": "nsv",
       "name": "Net Sales Value",
+      "kpiCode": "NSV",
       "tag": "Sales Volume",
       "description": "Monthly net sales vs target.",
       "sample": "Slabs 95% → 110% · ₹2,400 → ₹6,000",
@@ -213,6 +215,7 @@
     {
       "id": "phasing",
       "name": "Sales Phasing",
+      "kpiCode": "SALES_PHASING",
       "tag": "In-Month Pacing",
       "description": "Rewards achieving a % of the month's NSV target by a cut-off date.",
       "sample": "By day 20 · 55% → 75% · ₹450 → ₹1,330",
@@ -357,6 +360,7 @@
     {
       "id": "eco",
       "name": "Productive Coverage",
+      "kpiCode": "PRODUCTIVE_COVERAGE",
       "tag": "Coverage",
       "description": "Outlets billed ≥ the minimum bill value threshold.",
       "sample": "Min ₹250 GSV/bill · 150 → 250 outlets",
@@ -587,6 +591,7 @@
     {
       "id": "tlsd",
       "name": "Lines Sold",
+      "kpiCode": "LINES_SOLD",
       "tag": "Distribution",
       "description": "Lines sold at CRS group code level.",
       "sample": "Min 750 · Max 2,500 · ₹1/line",
@@ -812,6 +817,7 @@
     {
       "id": "dbb",
       "name": "Focus SKU Distribution",
+      "kpiCode": "FOCUS_SKU_DISTRIBUTION",
       "tag": "Distribution",
       "description": "Lines of client-designated focus SKUs at CRS group code level.",
       "sample": "Min 200 · Max 800 · ₹3/line · Focus SKU list",
@@ -1048,6 +1054,7 @@
     {
       "id": "qnsv",
       "name": "Quarterly NSV Bonus",
+      "kpiCode": "QUARTERLY_NSV",
       "tag": "Sales Volume",
       "description": "Cumulative quarterly Secondary NSV vs quarterly target — same slab structure as monthly NSV.",
       "sample": "MR ₹6,000 · ASO GT + Region up to ₹21,600",
@@ -1169,6 +1176,7 @@
     {
       "id": "collection",
       "name": "Collection % of Billing",
+      "kpiCode": "COLLECTION",
       "tag": "Collection",
       "description": "Cash collected vs billed value in the period.",
       "sample": "85% → 100% · 4 slabs · up to ₹4,000",
@@ -1268,6 +1276,7 @@
     {
       "id": "new_outlets",
       "name": "New Outlets Added",
+      "kpiCode": "NEW_OUTLETS",
       "tag": "Coverage",
       "description": "Brand-new outlets billed for the first time in the period.",
       "sample": "5 → 20 outlets · up to ₹3,000",
@@ -1367,6 +1376,7 @@
     {
       "id": "range_selling",
       "name": "Range Selling %",
+      "kpiCode": "RANGE_SELLING",
       "tag": "Distribution",
       "description": "Share of outlets billed across multiple focus categories.",
       "sample": "40% → 85% · up to ₹3,600",
@@ -1466,6 +1476,7 @@
     {
       "id": "pcc",
       "name": "PCC — Productive Calls / Day",
+      "kpiCode": "PRODUCTIVE_CALLS",
       "tag": "Productivity",
       "description": "Average productive (billed) calls per field working day.",
       "sample": "18 → 30 calls/day · up to ₹2,800",
@@ -1565,6 +1576,7 @@
     {
       "id": "call_compliance",
       "name": "Beat / Call Compliance %",
+      "kpiCode": "CALL_COMPLIANCE",
       "tag": "Productivity",
       "description": "Adherence to the planned daily beat / PJP.",
       "sample": "80% → 95% · up to ₹2,000",
@@ -1660,6 +1672,7 @@
     {
       "id": "must_sell_sku",
       "name": "Must-Sell SKU Achievement",
+      "kpiCode": "MUST_SELL_SKU",
       "tag": "Sales Volume",
       "description": "Achievement on the mandatory must-sell SKU list.",
       "sample": "70% → 100% · up to ₹3,000",
@@ -1755,6 +1768,7 @@
     {
       "id": "ulpo",
       "name": "ULPO — Unique Lines per Outlet",
+      "kpiCode": "UNIQUE_LINE_COUNT",
       "tag": "Distribution",
       "description": "Average unique lines billed per outlet.",
       "sample": "3 → 7 lines · up to ₹2,600",

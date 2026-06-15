@@ -13,7 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { saveProgram, newProgramId, quarterForMonth } from "@/lib/programStore";
 import { buildRulePayloads } from "@/lib/rulePayload";
 import { submitRules } from "@/lib/ruleApi";
-import { fetchChannelNames } from "@/lib/saleshubApi";
+import { fetchChannelNames, fetchRolePayloadValues } from "@/lib/saleshubApi";
 
 const TOTAL_STEPS = 5;
 const REVIEW_STEP = 5;
@@ -51,6 +51,9 @@ export function IncentiveWizard({ onBack, prefill, onPublished }: IncentiveWizar
         if (names.length > 0) setState((s) => ({ ...s, channels: names }));
       })
       .catch(() => { /* silently keep default channels */ });
+    // Warm the role → API value mapping so buildRulePayloads can resolve it,
+    // including clone/template flows that start straight on the Review step.
+    fetchRolePayloadValues().catch(() => { /* non-fatal */ });
   }, []);
 
   // Dev aid: log the /v1/rules payload built from the current form state each

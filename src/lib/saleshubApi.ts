@@ -239,6 +239,22 @@ export interface ConsequenceConfigValue {
 export const CONSEQUENCE_DOMAIN_NAME = "incentiveconfig";
 export const CONSEQUENCE_DOMAIN_TYPE = "gate_rule_consequence_configuration";
 
+// Domain coordinates for the selectable programme roles config.
+export const ROLES_DOMAIN_NAME = "incentiveconfig";
+export const ROLES_DOMAIN_TYPE = "role_configuration";
+
+// Domain coordinates for the role → API value (outlet_type) mapping config.
+export const ROLE_PAYLOAD_VALUE_DOMAIN_NAME = "incentiveconfig";
+export const ROLE_PAYLOAD_VALUE_DOMAIN_TYPE = "role_payload_value_configuration";
+
+/** domainValue shape for the roles config. */
+export interface RolesConfigValue {
+  roles: string[];
+}
+
+/** domainValue shape for the role → API value mapping config. */
+export type RolePayloadValues = Record<string, string>;
+
 // Session cache: (domainName::domainType) → in-flight or resolved config.
 const configCache = new Map<string, Promise<ConfigFeature | null>>();
 
@@ -299,6 +315,47 @@ export async function fetchConsequenceOptions(): Promise<ConsequenceOptions> {
   );
   const options = config?.domainValue?.options;
   return Array.isArray(options) ? options : [];
+}
+
+/**
+ * Fetch the selectable programme roles from config. Returns the config's
+ * domainValue.roles array, or [] if none is configured / the API call fails.
+ */
+export async function fetchProgramRoles(): Promise<string[]> {
+  const config = await fetchConfigFeature<RolesConfigValue>(
+    ROLES_DOMAIN_NAME,
+    ROLES_DOMAIN_TYPE
+  );
+  const roles = config?.domainValue?.roles;
+  return Array.isArray(roles) ? roles : [];
+}
+
+// Synchronous mirror of the last-fetched role → API value mapping, so payload
+// building (which is synchronous) can resolve values without awaiting. Warmed
+// by fetchRolePayloadValues().
+let rolePayloadValuesCache: RolePayloadValues = {};
+
+/**
+ * Fetch the role → API value (outlet_type) mapping from config. Returns the
+ * config's domainValue object, or {} if none is configured / the API call
+ * fails. Also warms the synchronous cache read by getRolePayloadValue().
+ */
+export async function fetchRolePayloadValues(): Promise<RolePayloadValues> {
+  const config = await fetchConfigFeature<RolePayloadValues>(
+    ROLE_PAYLOAD_VALUE_DOMAIN_NAME,
+    ROLE_PAYLOAD_VALUE_DOMAIN_TYPE
+  );
+  const values = config?.domainValue;
+  rolePayloadValuesCache = values && typeof values === "object" ? values : {};
+  return rolePayloadValuesCache;
+}
+
+/**
+ * Synchronous lookup of a role's API value from the last fetched mapping.
+ * Returns "" if the role is unknown or the mapping hasn't loaded yet.
+ */
+export function getRolePayloadValue(role: string): string {
+  return rolePayloadValuesCache[role] ?? "";
 }
 
 /** Zone → State → City tree, keyed by display name (matches the picker's shape). */

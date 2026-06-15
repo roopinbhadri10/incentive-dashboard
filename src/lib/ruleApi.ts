@@ -11,6 +11,7 @@ const RULES_ENDPOINT = import.meta.env.VITE_RULES_ENDPOINT ?? "/incentive-api/v1
 const TENANT_ID = import.meta.env.VITE_TENANT_ID ?? "default";
 
 export async function submitRule(payload: RuleApiPayload): Promise<unknown> {
+  const RULES_ENDPOINT=import.meta.env.VITE_RULES_ENDPOINT ?? "/incentive-api/v1/ruless";
   const res = await fetch(RULES_ENDPOINT, {
     method: "POST",
     headers: {
