@@ -131,10 +131,20 @@ export function IncentiveWizard({ onBack, prefill, onPublished }: IncentiveWizar
     ? "mr"
     : undefined;
 
-  // Sequential gating: a step is reachable only once every mandatory step before
-  // it is complete (Basics → Audience → KPIs). Gates is optional, so Gates and
-  // Review unlock together once Basics + Audience + ≥1 KPI are done.
-  const maxReachableStep = !isBasicsComplete(state.basics)
+  // Editing/cloning/templating starts from an already-formed programme handed in
+  // via `prefill.builder`. The rules-API record it's rebuilt from can't always
+  // recover every field (e.g. audience division/geography), so the sequential
+  // gating below would wrongly lock the user out of navigating between steps.
+  // For any prefilled flow, treat every step as reachable.
+  const prefilled = !!prefill?.builder;
+
+  // Sequential gating (first-time creation only): a step is reachable only once
+  // every mandatory step before it is complete (Basics → Audience → KPIs). Gates
+  // is optional, so Gates and Review unlock together once Basics + Audience +
+  // ≥1 KPI are done.
+  const maxReachableStep = prefilled
+    ? TOTAL_STEPS
+    : !isBasicsComplete(state.basics)
     ? 1
     : !isAudienceV2Complete(state.audience)
     ? 2
@@ -177,10 +187,14 @@ export function IncentiveWizard({ onBack, prefill, onPublished }: IncentiveWizar
     }
   };
 
+  // In a prefilled (edit/clone/template) flow the programme is already complete,
+  // so the per-step "Next" / "Back to review" CTA must never be blocked — that
+  // block is what otherwise traps the user on a step they jumped in to edit.
   const nextDisabled =
-    (currentStep === 1 && !isBasicsComplete(state.basics)) ||
-    (currentStep === 2 && !isAudienceV2Complete(state.audience)) ||
-    (currentStep === 3 && state.programKpis.length === 0);
+    !prefilled &&
+    ((currentStep === 1 && !isBasicsComplete(state.basics)) ||
+      (currentStep === 2 && !isAudienceV2Complete(state.audience)) ||
+      (currentStep === 3 && state.programKpis.length === 0));
 
   return (
     <div className="flex flex-col h-full">

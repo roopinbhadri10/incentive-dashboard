@@ -273,7 +273,7 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
 
   return programKpis.map((kpi, i) => {
     const kpiType = KPI_TYPE_BY_TEMPLATE[kpi.templateId] ?? "SALES_TARGET";
-    const baseKpiName = KPI_TEMPLATE_MAP[kpi.templateId]?.name ?? kpi.templateId;
+    const baseKpiName = KPI_TEMPLATE_MAP[kpi.templateId]?.meta.name ?? kpi.templateId;
 
     return {
       lobId: LOB_ID,
