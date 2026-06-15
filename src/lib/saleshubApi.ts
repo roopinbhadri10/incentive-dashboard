@@ -10,12 +10,12 @@ const SALESHUB_BASE_URL =
 
 const SALESHUB_TOKEN =
   import.meta.env.VITE_SALESHUB_TOKEN ??
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzYWxlc2RiLWF1dGgiLCJpYXQiOjE3ODE0OTc4MTYsImV4cCI6MTc4MTUzMzgxNiwidGVuYW50X2lkIjoienlkdXMiLCJ1c2VyX2lkIjo3MDU0MDMsInVzZXJuYW1lIjoic2FsZXNodWJAc2FsZXNjb2RlLmFpIiwib3JnX3R5cGUiOm51bGwsIm9yZ19jb2RlIjpudWxsLCJkZWZhdWx0X2NyZWRzIjp0cnVlLCJyb2xlcyI6WyJURU5BTlRfQURNSU4iXSwianRpIjoiM2EzYmI3OTgtMmZhZS00NTliLWFmY2ItMzU5ZGYxZWM1YzE4In0.XGANvNGlQl73vfUepH1tY3zqsKeH8V1RDaEBYkPjhPc"
-//  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzYWxlc2RiLWF1dGgiLCJpYXQiOjE3ODE0OTc4NDYsImV4cCI6MTc4MTUzMzg0NiwidGVuYW50X2lkIjoiRW1hbWkiLCJ1c2VyX2lkIjoxNDcwNzgsInVzZXJuYW1lIjoiRW1hbWkiLCJvcmdfdHlwZSI6bnVsbCwib3JnX2NvZGUiOm51bGwsImRlZmF1bHRfY3JlZHMiOnRydWUsInJvbGVzIjpbIlRFTkFOVF9BRE1JTiJdLCJqdGkiOiJmNDVmYzliNS01NDkzLTQxNTEtYmU5Mi0xZDNjZDA2ODhiNDMifQ.DB29Yz4gmDPUyW64s_5c2j1Ayc2Qijm5Sjn0EY14v-w"
+  // "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzYWxlc2RiLWF1dGgiLCJpYXQiOjE3ODE0OTc4MTYsImV4cCI6MTc4MTUzMzgxNiwidGVuYW50X2lkIjoienlkdXMiLCJ1c2VyX2lkIjo3MDU0MDMsInVzZXJuYW1lIjoic2FsZXNodWJAc2FsZXNjb2RlLmFpIiwib3JnX3R5cGUiOm51bGwsIm9yZ19jb2RlIjpudWxsLCJkZWZhdWx0X2NyZWRzIjp0cnVlLCJyb2xlcyI6WyJURU5BTlRfQURNSU4iXSwianRpIjoiM2EzYmI3OTgtMmZhZS00NTliLWFmY2ItMzU5ZGYxZWM1YzE4In0.XGANvNGlQl73vfUepH1tY3zqsKeH8V1RDaEBYkPjhPc"
+ "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzYWxlc2RiLWF1dGgiLCJpYXQiOjE3ODE0OTc4NDYsImV4cCI6MTc4MTUzMzg0NiwidGVuYW50X2lkIjoiRW1hbWkiLCJ1c2VyX2lkIjoxNDcwNzgsInVzZXJuYW1lIjoiRW1hbWkiLCJvcmdfdHlwZSI6bnVsbCwib3JnX2NvZGUiOm51bGwsImRlZmF1bHRfY3JlZHMiOnRydWUsInJvbGVzIjpbIlRFTkFOVF9BRE1JTiJdLCJqdGkiOiJmNDVmYzliNS01NDkzLTQxNTEtYmU5Mi0xZDNjZDA2ODhiNDMifQ.DB29Yz4gmDPUyW64s_5c2j1Ayc2Qijm5Sjn0EY14v-w"
 const SALESHUB_TENANT_ID =
   import.meta.env.VITE_SALESHUB_TENANT_ID ?? 
-  "zydus"
-  // "Emami";
+  // "zydus"
+  "Emami";
 
 function saleshubHeaders(): HeadersInit {
   return {
@@ -68,41 +68,47 @@ export async function fetchChannelNames(): Promise<string[]> {
   }
 }
 
+// Roles come from the org-types hierarchy. Each org type is a node in the org
+// tree (e.g. ZSM → RSM → ASM → HQ → ASO → DB → MR → OUTLET); its `code` is the
+// role identifier and `description` the human-readable label.
 export interface SaleshubRole {
   id: number;
   tenantId: string;
-  name: string;
+  code: string;
+  type: string;
   description: string | null;
+  isBuiltin: boolean;
+  parents: string[];
   createdAt: string;
 }
 
-/** Fetch all roles for the configured tenant. Returns role names sorted alphabetically. */
+/** Fetch all org-type roles for the configured tenant, sorted by code. */
 export async function fetchRoles(): Promise<SaleshubRole[]> {
-  const res = await fetch(`${SALESHUB_BASE_URL}/roles`, {
+  const res = await fetch(`${SALESHUB_BASE_URL}/org-types`, {
     headers: saleshubHeaders(),
   });
 
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     throw new Error(
-      `SalesHub /roles responded ${res.status}${detail ? `: ${detail}` : ""}`
+      `SalesHub /org-types responded ${res.status}${detail ? `: ${detail}` : ""}`
     );
   }
 
   const data = await res.json();
   const roles: SaleshubRole[] = Array.isArray(data) ? data : [];
-  return roles.sort((a, b) => a.name.localeCompare(b.name));
+  return roles.sort((a, b) => a.code.localeCompare(b.code));
 }
 
 /**
- * Convenience — returns just the role name strings. If the live API call fails
- * (token expired, network, etc.) we return an empty list so the role picker
- * shows no options rather than the raw API error.
+ * Convenience — returns just the role codes. If the live API call fails (token
+ * expired, network, etc.) we return an empty list so the role picker shows no
+ * options rather than the raw API error.
  */
 export async function fetchRoleNames(): Promise<string[]> {
   try {
     const roles = await fetchRoles();
-    return roles.map((r) => r.name);
+    return roles.map((r) => r.code);
   } catch (err) {
     console.warn("fetchRoleNames: API failed, returning no roles —", err);
     return [];
