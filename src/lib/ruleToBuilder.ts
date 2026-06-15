@@ -12,6 +12,7 @@ import {
   type ProgrammePeriod,
 } from "@/components/wizard/builderState";
 import { KPI_TEMPLATE_MAP, type KpiTemplateId } from "@/components/kpi-library/registry";
+import { getKpiCatalog } from "@/components/kpi-library/schema/kpiCatalog";
 import type { RuleRecord } from "./ruleApi";
 
 interface RuleCondition {
@@ -110,6 +111,23 @@ function rolesFor(conditions: RuleCondition[]): string[] {
   return conditions.find((c) => c.property === "role")?.values ?? [];
 }
 
+/**
+ * Recover the exact KPI template. `kpiCode` is 1:1 with a template, so prefer it
+ * (matched against the catalog's meta.kpiCode). Falls back to the lossy
+ * kpiCombination → template map for older rules saved without a kpiCode
+ * (kpiCombination is many-to-one, so e.g. nsv/phasing/qnsv all collapse to nsv).
+ */
+function resolveTemplateId(rule: RuleRecord): KpiTemplateId {
+  const kpiCode = rule.ruleDefinition?.kpiCode;
+  if (kpiCode) {
+    const match = Object.values(getKpiCatalog().entries).find(
+      (e) => e.meta.kpiCode === kpiCode
+    );
+    if (match) return match.meta.id as KpiTemplateId;
+  }
+  return TEMPLATE_BY_KPI_TYPE[rule.kpiCombination ?? ""] ?? "nsv";
+}
+
 export function ruleToBuilder(rule: RuleRecord): BuilderState {
   const m = /^(\d{4})-(\d{2})/.exec(rule.effectiveFrom ?? "");
   const year = m ? Number(m[1]) : emptyBuilder.basics.year;
@@ -124,7 +142,7 @@ export function ruleToBuilder(rule: RuleRecord): BuilderState {
       : (rule.kpiConfig as { userFilters?: { roles?: string[] } } | undefined)?.userFilters?.roles ?? [];
   const channels = channelsFor(conditions);
 
-  const templateId = TEMPLATE_BY_KPI_TYPE[rule.kpiCombination ?? ""] ?? "nsv";
+  const templateId = resolveTemplateId(rule);
   const tpl = KPI_TEMPLATE_MAP[templateId];
 
   return {

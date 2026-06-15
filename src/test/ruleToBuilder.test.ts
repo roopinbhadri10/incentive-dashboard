@@ -39,6 +39,18 @@ describe("ruleToBuilder", () => {
     expect(b.programKpis[0].templateId).toBe("nsv");
   });
 
+  it("recovers the exact KPI from ruleDefinition.kpiCode (not the lossy kpiCombination)", () => {
+    // phasing and nsv both map to SALES_TARGET; kpiCode disambiguates them.
+    const rule: RuleRecord = {
+      ruleName: "Phasing Program",
+      calculationFrequency: "MONTHLY",
+      kpiCombination: "SALES_TARGET",
+      effectiveFrom: "2026-06-01",
+      ruleDefinition: { kpiCode: "SALES_PHASING", payoutType: "CASH", tiers: [] },
+    };
+    expect(ruleToBuilder(rule).programKpis[0].templateId).toBe("phasing");
+  });
+
   it("supports the legacy { zones, channels } criteria shape and maps the KPI type", () => {
     const rule: RuleRecord = {
       ruleName: "Coverage Push",
