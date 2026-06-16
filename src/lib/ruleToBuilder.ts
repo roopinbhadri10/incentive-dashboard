@@ -161,6 +161,22 @@ function rolesFromCriteria(conditions: RuleCondition[]): string[] {
 }
 
 /**
+ * Recover the audience role(s) from a rule. Prefers the verbatim role names the
+ * wizard round-trips in kpiConfig (exact, matches the role picker's options),
+ * falling back to recovering them from applicabilityCriteria. Shared by
+ * ruleToBuilder (audience reconstruction) and ruleToProgramme (the list's role
+ * column + filter) so both read the role the same way instead of one of them
+ * hardcoding it. Self-contained: re-normalizes the criteria internally.
+ */
+export function rolesFromRule(rule: RuleRecord): string[] {
+  const kpiConfigRoles =
+    (rule.kpiConfig as { userFilters?: { roles?: string[] } } | undefined)?.userFilters?.roles ?? [];
+  if (kpiConfigRoles.length > 0) return kpiConfigRoles;
+  const criteria = (rule.applicabilityCriteria ?? {}) as ApplicabilityCriteria;
+  return rolesFromCriteria(normalizeConditions(criteria));
+}
+
+/**
  * Recover the exact KPI template. `kpiCode` is 1:1 with a template, so prefer it
  * (matched against the catalog's meta.kpiCode). Falls back to the lossy
  * kpiCombination → template map for older rules saved without a kpiCode
@@ -249,14 +265,9 @@ export function ruleToBuilder(rule: RuleRecord): BuilderState {
 
   const criteria = (rule.applicabilityCriteria ?? {}) as ApplicabilityCriteria;
   const conditions = normalizeConditions(criteria);
-  // Prefer the verbatim role names the wizard round-trips in kpiConfig (exact,
-  // and matches the role picker's options). Fall back to recovering the role
-  // from applicabilityCriteria when the engine didn't preserve kpiConfig — see
-  // rolesFromCriteria. Either way the role section is populated whenever the
-  // rule carries the audience at all.
-  const kpiConfigRoles =
-    (rule.kpiConfig as { userFilters?: { roles?: string[] } } | undefined)?.userFilters?.roles ?? [];
-  const roles = kpiConfigRoles.length > 0 ? kpiConfigRoles : rolesFromCriteria(conditions);
+  // Role section is populated whenever the rule carries the audience at all —
+  // see rolesFromRule (verbatim kpiConfig first, else recovered from criteria).
+  const roles = rolesFromRule(rule);
   const channels = channelsFor(conditions);
 
   // If the engine preserved the verbatim wizard config we round-trip in

@@ -3,7 +3,11 @@
 
 export type Channel = "CCD" | "HCD";
 
-export type RoleType = "MR" | "ASO_ASE" | "ASO" | "ASM";
+// The four canonical roles are kept as literals for autocomplete, but the role
+// is ultimately sourced from config (see fetchProgramRoles / rolesFromRule), so
+// any config-defined role string is also valid. The `(string & {})` member
+// widens the type to all strings without collapsing the literal hints.
+export type RoleType = "MR" | "ASO_ASE" | "ASO" | "ASM" | (string & {});
 
 export type WorkingSegment =
   | "urban-retail"

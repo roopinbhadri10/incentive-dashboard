@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -25,6 +25,11 @@ import {
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchRules } from "@/lib/ruleApi";
+import {
+  fetchProgramRoles,
+  fetchRolePayloadValues,
+  fetchRoleDesignations,
+} from "@/lib/saleshubApi";
 import { ruleToProgramme } from "@/lib/ruleToProgramme";
 import type {
   Programme,
@@ -83,6 +88,8 @@ function formatRole(role: RoleType): string {
     case "ASO_ASE": return "ASO/ASE";
     case "ASO": return "ASO";
     case "ASM": return "ASM";
+    // Config-defined roles arrive as ready-to-display labels — show verbatim.
+    default: return role;
   }
 }
 
@@ -135,12 +142,22 @@ export function ProgramsPage({
 }: ProgramsPageProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [channelFilter, setChannelFilter] = useState<"all" | ChannelType>("all");
-  const [roleFilter, setRoleFilter] = useState<"all" | RoleType>("all");
+  const [roleFilter, setRoleFilter] = useState<"all" | string>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "draft" | "archived">("all");
   const [periodFilter, setPeriodFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"earning" | "period" | "name">("earning");
   const [selected, setSelected] = useState<string[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // Roles for the filter are synced from config — the same source the create
+  // wizard's Audience step uses (fetchProgramRoles) — so the two lists stay in
+  // lock-step instead of drifting from a hardcoded list.
+  const [roles, setRoles] = useState<string[]>([]);
+  useEffect(() => {
+    fetchProgramRoles()
+      .then(setRoles)
+      .catch(() => { /* leave roles empty → only "All roles" shows */ });
+  }, []);
 
   // Programmes are sourced live from the rules engine (GET /v1/rules).
   const {
@@ -150,7 +167,18 @@ export function ProgramsPage({
     error,
   } = useQuery({
     queryKey: ["rules"],
-    queryFn: async () => (await fetchRules()).map(ruleToProgramme),
+    queryFn: async () => {
+      // Warm the role → marketType/designation reverse-maps before mapping, so
+      // ruleToProgramme's role recovery (rolesFromRule) can resolve rules that
+      // only carry the role implicitly. Non-fatal: recovery falls back to the
+      // verbatim kpiConfig roles, which need no cache.
+      const [rules] = await Promise.all([
+        fetchRules(),
+        fetchRolePayloadValues().catch(() => { /* non-fatal */ }),
+        fetchRoleDesignations().catch(() => { /* non-fatal */ }),
+      ]);
+      return rules.map(ruleToProgramme);
+    },
   });
 
   // Distinct period buckets from data
@@ -277,10 +305,9 @@ export function ProgramsPage({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All roles</SelectItem>
-                    <SelectItem value="MR">MR</SelectItem>
-                    <SelectItem value="ASO_ASE">ASO/ASE</SelectItem>
-                    <SelectItem value="ASO">ASO</SelectItem>
-                    <SelectItem value="ASM">ASM</SelectItem>
+                    {roles.map((r) => (
+                      <SelectItem key={r} value={r}>{r}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 <Select
@@ -481,9 +508,11 @@ function ProgrammeRow({
             >
               {channel.label}
             </span>
-            <Badge variant="outline" className="text-[10px] font-medium px-1.5 py-0 h-[18px]">
-              {formatRole(programme.role)}
-            </Badge>
+            {programme.role && (
+              <Badge variant="outline" className="text-[10px] font-medium px-1.5 py-0 h-[18px]">
+                {formatRole(programme.role)}
+              </Badge>
+            )}
             {segmentLabel && (
               <Badge variant="secondary" className="text-[10px] font-medium px-1.5 py-0 h-[18px]">
                 {segmentLabel}

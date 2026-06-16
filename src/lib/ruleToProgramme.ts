@@ -1,10 +1,13 @@
 // Maps a rules-engine record (`GET /v1/rules`) onto the Programme shape the
 // programmes list renders. The engine record only carries a subset of the rich
-// Programme model, so fields it doesn't provide (role, segment, geography,
-// per-KPI breakdown) fall back to neutral defaults.
+// Programme model, so fields it doesn't provide (segment, geography, per-KPI
+// breakdown) fall back to neutral defaults. The role IS recovered from the rule
+// via rolesFromRule — the same source the edit/clone wizard reads — so the
+// list's role column + filter reflect the real audience instead of a guess.
 
 import type { Channel, Programme, ProgrammeStatus } from "@/types/programme";
 import type { RuleRecord } from "./ruleApi";
+import { rolesFromRule } from "./ruleToBuilder";
 
 // Associates each mapped Programme with its source rule so clone/edit can rebuild
 // the full wizard state from the rule (the Programme itself is a lossy summary).
@@ -66,7 +69,7 @@ export function ruleToProgramme(rule: RuleRecord): Programme {
     name: rule.ruleName || rule.ruleCode || "Untitled programme",
     status: toStatus(rule.status, rule.isActive),
     channel: extractDivision(rule.applicabilityCriteria) ?? "CCD",
-    role: "MR",
+    role: rolesFromRule(rule)[0] ?? "",
     segment: "all",
     geography: "all-india",
     period: periodFromIso(rule.effectiveFrom),
