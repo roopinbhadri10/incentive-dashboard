@@ -41,11 +41,6 @@ export const KPI_TEMPLATE_MAP: Record<string, CatalogEntry> = new Proxy(
   { get: (_t, id: string) => getKpiCatalog().entries[id] },
 );
 
-/** Ordered list of catalog entries (snapshot of the current catalog). */
-export function getKpiTemplates(): CatalogEntry[] {
-  return getKpiCatalog().templates;
-}
-
 /** Pick the display name for a KPI instance, falling back to the template name. */
 export function kpiDisplayName(
   templateId: KpiTemplateIdOrCustom,

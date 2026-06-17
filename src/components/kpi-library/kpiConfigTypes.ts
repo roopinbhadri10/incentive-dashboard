@@ -80,12 +80,6 @@ export function simpleSlabMaxPayout(c: SimpleSlabConfig): number {
   return [...c.slabs].sort((a, b) => a.threshold - b.threshold).at(-1)!.payout;
 }
 
-// ── Phasing / Quarterly NSV (structurally NSV) ───────────────────────────────
-export interface PhasingConfig extends NsvTemplateConfig {
-  cutoffDay: number;
-}
-export type QuarterlyNsvConfig = NsvTemplateConfig;
-
 // ── AI Recommended Order ─────────────────────────────────────────────────────
 export type AiRecoPayoutBasis = "monthly_pct" | "per_line";
 export type AiRecoComplianceType = "sku_only" | "sku_and_qty";
