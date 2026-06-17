@@ -21,9 +21,9 @@ import { KeyNotesSection } from "./KeyNotesSection";
 import { TargetSourceSelector } from "./TargetSourceSelector";
 import { SlabsEditor } from "./SlabsEditor";
 import { DbbProductSelector, DEFAULT_DBB_PRODUCTS } from "./DbbProductSelector";
-import { GateKpiOptions } from "./GateKpiOptions";
+import { GateKpiOptions, useGateKpiOptions } from "./GateKpiOptions";
 import {
-  LIBRARY_KPIS, uid,
+  uid,
   type GateCondition, type GateThresholdUnit, type NsvSlab, type StepMode,
 } from "./nsvTypes";
 import { COMPUTE_REGISTRY } from "./schema/computeRegistry";
@@ -95,7 +95,25 @@ function FieldControl({ field, cfg, setCfg }: { field: Field; cfg: Cfg; setCfg: 
             min={field.min}
             max={field.max}
             step={field.step}
-            onChange={(e) => set(Number(e.target.value))}
+            onChange={(e) => {
+              // min/max attrs don't block typed input. If a keystroke would push
+              // the value past max, reject it — restore the last valid value
+              // rather than snapping down to max.
+              const n = Number(e.target.value);
+              if (field.max != null && n > field.max) {
+                e.target.value = String((raw as number) ?? 0);
+                return;
+              }
+              set(n);
+            }}
+            onBlur={(e) => {
+              // Lower bound on blur (kept off the keystroke path so the field can
+              // be cleared/retyped mid-edit), with max as a final safety net.
+              let n = Number(e.target.value);
+              if (field.min != null && n < field.min) n = field.min;
+              if (field.max != null && n > field.max) n = field.max;
+              if (n !== Number(e.target.value)) set(n);
+            }}
             className="h-8 w-28"
           />
           {field.suffix && <span className="text-xs text-muted-foreground">{field.suffix}</span>}
@@ -346,6 +364,9 @@ function EcoSlabsTable({ section, cfg, setCfg }: { section: SlabsSection; cfg: C
 
 // ── Gate conditions ──────────────────────────────────────────────────────────
 function GatesEditor({ section, cfg, setCfg, indexLabel }: { section: GatesSection; cfg: Cfg; setCfg: SetCfg; indexLabel: string }) {
+  // "Dependent on KPI" options come from the KPI section config (API-driven
+  // catalog), not a hardcoded list.
+  const kpiOptions = useGateKpiOptions();
   const enabled = !!getPath(cfg, section.enabledPath);
   const gates = (getPath(cfg, section.gatesPath) as GateCondition[]) ?? [];
   const noun = section.kpiNoun ?? "this KPI";
@@ -355,7 +376,8 @@ function GatesEditor({ section, cfg, setCfg, indexLabel }: { section: GatesSecti
   const updateGate = (id: string, patch: Partial<GateCondition>) =>
     setGates(gates.map((g) => (g.id === id ? { ...g, ...patch } : g)));
   const addGate = () => {
-    const firstOther = LIBRARY_KPIS.find((k) => k.id !== section.selfId)!;
+    const firstOther = kpiOptions.find((k) => k.id !== section.selfId);
+    if (!firstOther) return;
     setGates([...gates, {
       id: uid("gate"), dependsOnKpiId: firstOther.id,
       thresholdValue: firstOther.defaultUnit === "pct" ? 80 : 50,
@@ -388,11 +410,11 @@ function GatesEditor({ section, cfg, setCfg, indexLabel }: { section: GatesSecti
                 <div className="space-y-1">
                   <Label className="text-[11px] text-muted-foreground">Dependent on KPI</Label>
                   <Select value={g.dependsOnKpiId} onValueChange={(v) => {
-                    const k = LIBRARY_KPIS.find((x) => x.id === v)!;
-                    updateGate(g.id, { dependsOnKpiId: v, thresholdUnit: k.defaultUnit });
+                    const k = kpiOptions.find((x) => x.id === v);
+                    updateGate(g.id, { dependsOnKpiId: v, thresholdUnit: k?.defaultUnit ?? "pct" });
                   }}>
                     <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                    <SelectContent className="max-h-72"><GateKpiOptions excludeId={section.selfId} /></SelectContent>
+                    <SelectContent className="max-h-72"><GateKpiOptions options={kpiOptions} excludeId={section.selfId} /></SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-1">

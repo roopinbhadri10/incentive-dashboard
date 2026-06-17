@@ -1154,7 +1154,7 @@
             "id": "gates",
             "title": "Gate conditions",
             "numbered": true,
-            "selfId": "quarterly_nsv",
+            "selfId": "qnsv",
             "enabledPath": "gatesEnabled",
             "gatesPath": "gates",
             "kpiNoun": "Quarterly NSV",
