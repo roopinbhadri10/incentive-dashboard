@@ -122,7 +122,9 @@ function channelsFor(conditions: RuleCondition[]): string[] {
 }
 
 function divisionFor(conditions: RuleCondition[]): Channel | undefined {
-  const v = conditions.find((c) => c.property === "division")?.values?.[0];
+  const v = conditions.find(
+    (c) => c.property === "outletDivision" || c.property === "division"
+  )?.values?.[0];
   return v === "CCD" || v === "HCD" ? v : undefined;
 }
 
@@ -191,6 +193,33 @@ function resolveTemplateId(rule: RuleRecord): KpiTemplateId {
     if (match) return match.meta.id as KpiTemplateId;
   }
   return TEMPLATE_BY_KPI_TYPE[rule.kpiCombination ?? ""] ?? "nsv";
+}
+
+/**
+ * Normalize a rule's tiers to the legacy cumulative shape configFromTiers expects
+ * ({minVal,maxVal,payout} led by a 0-floor tier). Rules created after the payload
+ * migration store {min,payoutValue}[ + stepUp/startingEarning]; rebuild their
+ * cumulative payout curve from that. Legacy rules pass through unchanged.
+ */
+export function normalizeRuleTiers(rd: RuleRecord["ruleDefinition"] | undefined): RuleTier[] {
+  const raw = rd?.tiers ?? [];
+  if (!raw.length) return [];
+  // Already the legacy cumulative shape.
+  if (raw[0].minVal != null || raw[0].payout != null) {
+    return raw.map((t) => ({ minVal: t.minVal ?? 0, maxVal: t.maxVal ?? 9999, payout: t.payout ?? 0 }));
+  }
+  // New shape → cumulative payout + a synthetic 0-floor tier.
+  const out: RuleTier[] = [{ minVal: 0, maxVal: raw[0].min ?? 0, payout: 0 }];
+  let cum = rd?.stepUpBy1Percent ? rd.startingEarning ?? 0 : 0;
+  raw.forEach((t, i) => {
+    if (rd?.stepUpBy1Percent) {
+      if (i > 0) cum += ((t.min ?? 0) - (raw[i - 1].min ?? 0)) * (t.payoutValue ?? 0);
+    } else {
+      cum = t.payoutValue ?? 0; // FIXED tiers carry the absolute payout directly.
+    }
+    out.push({ minVal: t.min ?? 0, maxVal: raw[i + 1]?.min ?? 9999, payout: Math.round(cum) });
+  });
+  return out;
 }
 
 /**
@@ -293,7 +322,7 @@ export function ruleToBuilder(rule: RuleRecord): BuilderState {
   // Restore the config straight from the API: the verbatim copy if the engine
   // kept it, else rebuilt from the payout tiers it returns. Template defaults
   // apply only when the rule carries no tiers at all.
-  const config = ui.templateConfig ?? configFromTiers(tpl, rule.ruleDefinition?.tiers);
+  const config = ui.templateConfig ?? configFromTiers(tpl, normalizeRuleTiers(rule.ruleDefinition));
   const customName = ui.customName;
 
   return {

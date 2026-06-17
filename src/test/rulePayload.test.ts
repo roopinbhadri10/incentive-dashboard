@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { emptyBuilder, type BuilderState } from "@/components/wizard/builderState";
-import { DEFAULT_NSV } from "@/components/kpi-library/nsvTypes";
+import { DEFAULT_NSV, DEFAULT_NSV_KEY_NOTES } from "@/components/kpi-library/nsvTypes";
 import { buildRulePayloads } from "@/lib/rulePayload";
 
 function sampleState(): BuilderState {
@@ -55,24 +55,84 @@ describe("buildRulePayloads", () => {
     expect(rule.applicabilityCriteria.outlet_filters).toEqual({
       operator: "AND",
       rules: [
-        { field: "division", op: "EQUALS", value: "CCD" },
+        { field: "outletDivision", op: "EQUALS", value: "CCD" },
         { field: "channel", op: "IN", value: ["GT", "MT"] },
       ],
     });
 
-    // Entry slab is the minimum achievement; tiers are cumulative payouts.
-    expect(rule.kpiConditions.minAchievementPct).toBe(95);
+    // No % gate configured → the rule carries no kpiConditions hurdle.
+    expect(rule.kpiConditions).toBeUndefined();
+    // DEFAULT_NSV is step-up: startingEarning at the entry slab, ₹/1% rate per tier.
     expect(rule.ruleDefinition.kpiCode).toBe("NSV");
+    expect(rule.ruleDefinition.stepUpBy1Percent).toBe(true);
+    expect(rule.ruleDefinition.startingEarning).toBe(2400);
+    expect(rule.ruleDefinition.keyRules).toEqual(DEFAULT_NSV_KEY_NOTES);
     expect(rule.ruleDefinition.tiers).toEqual([
-      { minVal: 0, maxVal: 95, payout: 0 },
-      { minVal: 95, maxVal: 100, payout: 2400 },
-      { minVal: 100, maxVal: 105, payout: 4000 },
-      { minVal: 105, maxVal: 110, payout: 5000 },
-      { minVal: 110, maxVal: 9999, payout: 6000 },
+      { min: 95, payoutValue: 0 },
+      { min: 100, payoutValue: 320 },
+      { min: 105, payoutValue: 200 },
+      { min: 110, payoutValue: 200 },
     ]);
 
     expect(rule.kpiConfig.userFilters.roles).toEqual(["MR", "ASO"]);
     expect(rule.kpiConfig.name).toBe("June Sales Target Incentive – TARGET_VS_ACHIEVEMENT");
+  });
+
+  it("emits FIXED tiers (no step-up) for pure-slab payouts", () => {
+    const state = sampleState();
+    state.programKpis = [
+      {
+        templateId: "nsv",
+        instanceId: "k1",
+        config: {
+          ...DEFAULT_NSV,
+          stepMode: "slab",
+          slabs: [
+            { pct: 95, ratePerPct: 0, entryPayout: 2400 },
+            { pct: 100, ratePerPct: 0, entryPayout: 3000 },
+            { pct: 105, ratePerPct: 0, entryPayout: 4000 },
+          ],
+        },
+      },
+    ];
+    const rule = buildRulePayloads(state)[0];
+    expect(rule.ruleDefinition.stepUpBy1Percent).toBe(false);
+    expect(rule.ruleDefinition.startingEarning).toBeUndefined();
+    expect(rule.ruleDefinition.tiers).toEqual([
+      { min: 95, payoutType: "FIXED", payoutValue: 2400 },
+      { min: 100, payoutType: "FIXED", payoutValue: 3000 },
+      { min: 105, payoutType: "FIXED", payoutValue: 4000 },
+    ]);
+  });
+
+  it("resolves a KPI cut-off day onto ruleDefinition.cutOfDate", () => {
+    const state = sampleState(); // June 2026
+    state.programKpis = [
+      { templateId: "nsv", instanceId: "k1", config: { ...DEFAULT_NSV, cutoffDay: 20 } },
+    ];
+    const rd = buildRulePayloads(state)[0].ruleDefinition;
+    expect(rd.cutOfDate).toBe("20-06-2026"); // DD-MM-YYYY from the rule's month/year
+  });
+
+  it("omits cutOfDate when the KPI defines no cut-off day", () => {
+    const rd = buildRulePayloads(sampleState())[0].ruleDefinition;
+    expect(rd.cutOfDate).toBeUndefined();
+  });
+
+  it("maps a percentage gate onto kpiConditions.hurdle.required_percentage", () => {
+    const state = sampleState();
+    state.gates = [
+      {
+        id: "g1",
+        joiner: "AND",
+        consequence: { kind: "zero-all" },
+        conditions: [
+          { metricGroup: "kpi", metric: "nsv", operator: "gt", value: 50, unit: "pct" },
+        ],
+      },
+    ];
+    const rule = buildRulePayloads(state)[0];
+    expect(rule.kpiConditions).toEqual({ hurdle: { required_percentage: 50 } });
   });
 
   it("emits one rule per KPI with unique rule codes for multi-KPI programs", () => {

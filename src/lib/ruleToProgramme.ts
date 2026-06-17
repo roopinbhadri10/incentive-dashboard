@@ -7,7 +7,7 @@
 
 import type { Channel, Programme, ProgrammeStatus } from "@/types/programme";
 import type { RuleRecord } from "./ruleApi";
-import { rolesFromRule } from "./ruleToBuilder";
+import { rolesFromRule, normalizeRuleTiers } from "./ruleToBuilder";
 
 // Associates each mapped Programme with its source rule so clone/edit can rebuild
 // the full wizard state from the rule (the Programme itself is a lossy summary).
@@ -45,7 +45,7 @@ function extractDivision(criteria: unknown): Channel | undefined {
     | undefined;
   // Grouped shape: division lives in outlet_filters (older rules: user_filters).
   const groupRules = [...(c?.outlet_filters?.rules ?? []), ...(c?.user_filters?.rules ?? [])];
-  const fromGroup = groupRules.find((r) => r?.field === "division")?.value;
+  const fromGroup = groupRules.find((r) => r?.field === "outletDivision" || r?.field === "division")?.value;
   const fromGroupVal = Array.isArray(fromGroup) ? fromGroup[0] : fromGroup;
   const fromCondition = c?.conditions?.find((x) => x?.property === "division")?.values?.[0];
   const v = (fromGroupVal ?? fromCondition ?? c?.divisions?.[0]) as string | undefined;
@@ -61,7 +61,9 @@ function periodFromIso(iso: string | undefined): { month: number; year: number; 
 }
 
 export function ruleToProgramme(rule: RuleRecord): Programme {
-  const tiers = rule.ruleDefinition?.tiers ?? [];
+  // Normalize to the cumulative tier shape so the top tier reflects the real
+  // max earning whether the rule uses the new {min,payoutValue} format or legacy.
+  const tiers = normalizeRuleTiers(rule.ruleDefinition);
   const maxMonthlyEarning = tiers.reduce((max, t) => Math.max(max, t?.payout ?? 0), 0);
 
   const programme: Programme = {
@@ -75,7 +77,10 @@ export function ruleToProgramme(rule: RuleRecord): Programme {
     period: periodFromIso(rule.effectiveFrom),
     kpis: {},
     gates: {
-      nsvMinPct: rule.kpiConditions?.minAchievementPct ?? 0,
+      nsvMinPct:
+        rule.kpiConditions?.hurdle?.required_percentage ??
+        rule.kpiConditions?.minAchievementPct ??
+        0,
       cftUrbanHrs: 0,
       cftRuralHrs: 0,
       cftMinWorkingDays: 0,

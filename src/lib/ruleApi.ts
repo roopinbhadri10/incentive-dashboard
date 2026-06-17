@@ -53,8 +53,25 @@ export interface RuleRecord {
   effectiveTill?: string;
   creationTime?: string;
   lastUpdateTime?: string;
-  kpiConditions?: { minAchievementPct?: number };
-  ruleDefinition?: { kpiCode?: string; payoutType?: string; tiers?: Array<{ minVal: number; maxVal: number; payout: number }> };
+  // New shape carries `hurdle`; legacy rules carry `minAchievementPct`.
+  kpiConditions?: { minAchievementPct?: number; hurdle?: { date?: string; required_percentage?: number } };
+  ruleDefinition?: {
+    kpiCode?: string;
+    payoutType?: string;
+    stepUpBy1Percent?: boolean;
+    startingEarning?: number;
+    keyRules?: string[];
+    cutOfDate?: string;
+    // New tiers use {min, payoutValue[, payoutType]}; legacy use {minVal, maxVal, payout}.
+    tiers?: Array<{
+      min?: number;
+      payoutValue?: number;
+      payoutType?: string;
+      minVal?: number;
+      maxVal?: number;
+      payout?: number;
+    }>;
+  };
   applicabilityCriteria?: unknown;
   [key: string]: unknown;
 }

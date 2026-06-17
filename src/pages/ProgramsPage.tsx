@@ -82,6 +82,18 @@ function formatPeriod(p: Programme["period"]): string {
   return `${MONTH_NAMES[p.month - 1]} ${p.year}`;
 }
 
+/**
+ * Parse a rules-engine creationTime (e.g. "2026-06-16T15:29:41.619282") to a
+ * comparable epoch (ms incl. time-of-day). The engine sends microseconds (6
+ * fractional digits) which strict browsers reject, so trim sub-millisecond
+ * digits first. Returns 0 for missing/invalid values so they sort last.
+ */
+function toEpoch(iso: string | undefined): number {
+  if (!iso) return 0;
+  const t = Date.parse(iso.replace(/(\.\d{3})\d+/, "$1"));
+  return Number.isNaN(t) ? 0 : t;
+}
+
 function formatRole(role: RoleType): string {
   switch (role) {
     case "MR": return "MR";
@@ -145,7 +157,7 @@ export function ProgramsPage({
   const [roleFilter, setRoleFilter] = useState<"all" | string>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "draft" | "archived">("all");
   const [periodFilter, setPeriodFilter] = useState<string>("all");
-  const [sortBy, setSortBy] = useState<"earning" | "period" | "name">("earning");
+  const [sortBy, setSortBy] = useState<"newest" | "earning" | "period" | "name">("newest");
   const [selected, setSelected] = useState<string[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -207,6 +219,10 @@ export function ProgramsPage({
     });
     list.sort((a, b) => {
       switch (sortBy) {
+        // Newest first by full creation timestamp (date + time); rules with no
+        // creationTime sort last.
+        case "newest":
+          return toEpoch(b.createdAt) - toEpoch(a.createdAt);
         case "earning": return b.maxMonthlyEarning - a.maxMonthlyEarning;
         case "period":
           return (b.period.year - a.period.year) || (b.period.month - a.period.month);
@@ -215,6 +231,22 @@ export function ProgramsPage({
     });
     return list;
   }, [programmes, searchQuery, channelFilter, roleFilter, statusFilter, periodFilter, sortBy]);
+
+  // Debug: log the list in the exact order it renders, with the creationTime each
+  // row sorts on (and its parsed epoch). If `createdAt` shows "(none)" / epoch 0,
+  // the engine's creationTime isn't reaching the row → the newest sort can't work.
+  useEffect(() => {
+    console.log(`[Programmes] ${filtered.length}/${programmes.length} shown · sort=${sortBy}`);
+    console.table(
+      filtered.map((p, i) => ({
+        "#": i + 1,
+        name: p.name,
+        createdAt: p.createdAt || "(none)",
+        epoch: toEpoch(p.createdAt),
+        status: p.status,
+      })),
+    );
+  }, [filtered, programmes.length, sortBy]);
 
   const toggleSelect = (id: string) =>
     setSelected((prev) => (prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]));
@@ -348,6 +380,7 @@ export function ProgramsPage({
                     <SelectValue placeholder="Sort" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="newest">Sort: Newest</SelectItem>
                     <SelectItem value="earning">Sort: Max earning</SelectItem>
                     <SelectItem value="period">Sort: Period</SelectItem>
                     <SelectItem value="name">Sort: Name</SelectItem>

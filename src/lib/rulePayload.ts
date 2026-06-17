@@ -30,20 +30,36 @@ export interface FilterGroup {
 }
 
 /**
- * Applicability split into two groups:
- *  - user_filters:   who (division, role, geography — zone/state/city).
- *  - outlet_filters: where (trade channel, and the role-specific outlet_type
+ * Applicability split into groups:
+ *  - user_filters:    who (division, role, geography — zone/state/city).
+ *  - outlet_filters:  where (trade channel, and the role-specific outlet_type
  *    sourced from the role config).
+ *  - product_filters: what (category/brand/SKU). Optional — only emitted when the
+ *    program scopes products. Left unset by the wizard today.
  */
 export interface ApplicabilityCriteria {
   user_filters: FilterGroup;
   outlet_filters: FilterGroup;
+  product_filters?: FilterGroup;
 }
 
+/**
+ * One payout tier. `min` is the achievement boundary it starts at (applies until
+ * the next tier's `min`). In step-up mode `payoutValue` is the ₹-per-1% rate over
+ * the previous boundary; otherwise it is the absolute payout at that boundary and
+ * `payoutType` is "FIXED".
+ */
 export interface RuleTier {
-  minVal: number;
-  maxVal: number;
-  payout: number;
+  min: number;
+  payoutValue: number;
+  payoutType?: "FIXED";
+}
+
+/** The payout-curve portion of ruleDefinition derived from a KPI's slab config. */
+interface RuleDefinitionPayout {
+  stepUpBy1Percent: boolean;
+  startingEarning?: number;
+  tiers: RuleTier[];
 }
 
 export interface ProductFilter {
@@ -68,8 +84,18 @@ export interface RuleApiPayload {
   status: string;
   isActive: boolean;
   applicabilityCriteria: ApplicabilityCriteria;
-  kpiConditions: { minAchievementPct: number };
-  ruleDefinition: { kpiCode: string; payoutType: string; tiers: RuleTier[] };
+  // Mid-period qualifying hurdle — only present when a % gate is configured.
+  kpiConditions?: { hurdle: { date?: string; required_percentage: number } };
+  ruleDefinition: {
+    kpiCode: string;
+    stepUpBy1Percent: boolean;
+    startingEarning?: number;
+    keyRules: string[];
+    // Phasing cut-off — only present when the KPI defines a cut-off day;
+    // resolves the day-of-month to DD-MM-YYYY for the rule's period.
+    cutOfDate?: string;
+    tiers: RuleTier[];
+  };
   kpiConfig: {
     kpiType: string;
     name: string;
@@ -186,11 +212,11 @@ function buildApplicabilityCriteria(
     userRules.push(toFilterRule(field, values, "NOT_IN"));
   }
 
-  // outlet_filters — where: division, trade channels, and the role-specific
+  // outlet_filters — where: outletDivision, trade channels, and the role-specific
   // marketType sourced from the role config (role_payload_value_configuration).
   const outletRules: FilterRule[] = [];
   if (audience.division) {
-    outletRules.push(toFilterRule("division", [audience.division]));
+    outletRules.push(toFilterRule("outletDivision", [audience.division]));
   }
   if (channels?.length) {
     outletRules.push(toFilterRule("channel", channels, "IN"));
@@ -221,82 +247,105 @@ interface SlabLikeConfig {
   minLines?: number;
   maxLines?: number;
   ratePerLine?: number;
+  keyNotes?: string[];
+  cutoffDay?: number; // phasing KPIs — day-of-month cut-off (e.g. 20).
 }
 
-/** Convert a KPI's slab structure into engine tiers [{minVal,maxVal,payout}]. */
-function tiersFor(templateId: KpiTemplateId, config: unknown): RuleTier[] {
+/**
+ * Convert a KPI's slab structure into the engine's payout curve: a list of
+ * {min, payoutValue} tiers plus the step-up flag / starting earning. Tiers start
+ * at the first real boundary (no synthetic 0-floor tier — each tier applies until
+ * the next tier's `min`).
+ */
+function buildPayout(templateId: KpiTemplateId, config: unknown): RuleDefinitionPayout {
   const cfg = (config ?? {}) as SlabLikeConfig;
   const slabs = cfg.slabs ?? [];
 
-  // NSV / phasing / quarterly — percentage slabs with cumulative payout.
+  // NSV / phasing / quarterly — percentage slabs.
   if (slabs.length && slabs[0].pct != null) {
-    const earnings = computeSlabEarnings(slabs as NsvSlab[], cfg.stepMode ?? "stepup");
-    const tiers: RuleTier[] = [{ minVal: 0, maxVal: slabs[0].pct ?? 0, payout: 0 }];
-    slabs.forEach((s, i) => {
-      tiers.push({
-        minVal: s.pct ?? 0,
-        maxVal: i + 1 < slabs.length ? slabs[i + 1].pct ?? 9999 : 9999,
-        payout: Math.round(earnings[i]?.cumulative ?? 0),
-      });
-    });
-    return tiers;
+    if ((cfg.stepMode ?? "stepup") === "stepup") {
+      // Step-up: startingEarning at the entry slab, then ₹-per-1% rate per slab.
+      return {
+        stepUpBy1Percent: true,
+        startingEarning: Math.round(slabs[0].entryPayout ?? 0),
+        tiers: slabs.map((s, i) => ({
+          min: s.pct ?? 0,
+          payoutValue: i === 0 ? 0 : Math.round(s.ratePerPct ?? 0),
+        })),
+      };
+    }
+    // Pure slab — absolute (cumulative) payout at each % boundary.
+    const earnings = computeSlabEarnings(slabs as NsvSlab[], "slab");
+    return {
+      stepUpBy1Percent: false,
+      tiers: slabs.map((s, i) => ({
+        min: s.pct ?? 0,
+        payoutType: "FIXED",
+        payoutValue: Math.round(earnings[i]?.cumulative ?? 0),
+      })),
+    };
   }
 
   // Simple slabs (collection, new_outlets, …) — threshold → absolute payout.
   if (slabs.length && slabs[0].threshold != null) {
-    const tiers: RuleTier[] = [{ minVal: 0, maxVal: slabs[0].threshold ?? 0, payout: 0 }];
-    slabs.forEach((s, i) => {
-      tiers.push({
-        minVal: s.threshold ?? 0,
-        maxVal: i + 1 < slabs.length ? slabs[i + 1].threshold ?? 9999 : 9999,
-        payout: Math.round(s.payout ?? 0),
-      });
-    });
-    return tiers;
+    return {
+      stepUpBy1Percent: false,
+      tiers: slabs.map((s) => ({
+        min: s.threshold ?? 0,
+        payoutType: "FIXED",
+        payoutValue: Math.round(s.payout ?? 0),
+      })),
+    };
   }
 
   // ECO — outlet-count slabs with cumulative per-outlet rate.
   if (slabs.length && slabs[0].count != null) {
-    const tiers: RuleTier[] = [{ minVal: 0, maxVal: slabs[0].count ?? 0, payout: 0 }];
     let cum = 0;
     let prevCount = 0;
-    slabs.forEach((s, i) => {
-      cum += ((s.count ?? 0) - prevCount) * (s.ratePerOutlet ?? 0);
-      prevCount = s.count ?? 0;
-      tiers.push({
-        minVal: s.count ?? 0,
-        maxVal: i + 1 < slabs.length ? slabs[i + 1].count ?? 9999 : 9999,
-        payout: Math.round(cum),
-      });
-    });
-    return tiers;
+    return {
+      stepUpBy1Percent: false,
+      tiers: slabs.map((s) => {
+        cum += ((s.count ?? 0) - prevCount) * (s.ratePerOutlet ?? 0);
+        prevCount = s.count ?? 0;
+        return { min: s.count ?? 0, payoutType: "FIXED", payoutValue: Math.round(cum) };
+      }),
+    };
   }
 
-  // Lines (TLSD / DBB) — min..max lines at a per-line rate.
+  // Lines (TLSD / DBB) — min..max lines at a per-line rate (top payout from minLines on).
   if (cfg.minLines != null && cfg.maxLines != null) {
     const top = Math.round(cfg.maxLines * (cfg.ratePerLine ?? 0));
-    return [
-      { minVal: 0, maxVal: cfg.minLines, payout: 0 },
-      { minVal: cfg.minLines, maxVal: cfg.maxLines, payout: top },
-      { minVal: cfg.maxLines, maxVal: 9999, payout: top },
-    ];
+    return {
+      stepUpBy1Percent: false,
+      tiers: [
+        { min: cfg.minLines, payoutType: "FIXED", payoutValue: top },
+        { min: cfg.maxLines, payoutType: "FIXED", payoutValue: top },
+      ],
+    };
   }
 
   // Fallback — one tier capped at the template's max payout.
   const max = KPI_TEMPLATE_MAP[templateId]?.maxPayout(config) ?? 0;
-  return [{ minVal: 0, maxVal: 9999, payout: Math.round(max ?? 0) }];
+  return {
+    stepUpBy1Percent: false,
+    tiers: [{ min: 0, payoutType: "FIXED", payoutValue: Math.round(max ?? 0) }],
+  };
 }
 
-/** Minimum achievement % to earn anything: a pct gate if present, else the KPI's entry slab. */
-function minAchievementPct(templateId: KpiTemplateId, config: unknown, gates: GateRule[]): number {
+/**
+ * Mid-period qualifying hurdle from a configured % gate, if any. The wizard has
+ * no hurdle-date field yet, so only `required_percentage` is emitted; absent when
+ * no % gate exists (the rule then carries no kpiConditions).
+ */
+function hurdleFor(gates: GateRule[]): { required_percentage: number } | undefined {
   for (const gate of gates ?? []) {
     for (const c of gate.conditions ?? []) {
-      if (typeof c.value === "number" && /pct|%/i.test(c.unit ?? "")) return c.value;
+      if (typeof c.value === "number" && /pct|%/i.test(c.unit ?? "")) {
+        return { required_percentage: c.value };
+      }
     }
   }
-  const cfg = (config ?? {}) as SlabLikeConfig;
-  const first = cfg.slabs?.[0];
-  return first?.pct ?? 0;
+  return undefined;
 }
 
 function emptyProductFilter(): ProductFilter {
@@ -329,6 +378,16 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
     const baseKpiName = meta?.baseKpiName ?? meta?.name ?? kpi.templateId;
     // Engine KPI code from the KPI config (falls back to the template id).
     const kpiCode = meta?.kpiCode ?? kpi.templateId;
+    const payout = buildPayout(kpi.templateId, kpi.config);
+    const keyRules = (kpi.config as SlabLikeConfig).keyNotes ?? [];
+    const hurdle = hurdleFor(gates);
+    // Phasing cut-off: resolve the day-of-month onto the rule's month/year
+    // (from = "YYYY-MM-DD") as DD-MM-YYYY, e.g. day 20 in Jun 2026 → "20-06-2026".
+    const cutoffDay = (kpi.config as SlabLikeConfig).cutoffDay;
+    const cutoff =
+      cutoffDay != null
+        ? { cutOfDate: `${pad2(cutoffDay)}-${from.slice(5, 7)}-${from.slice(0, 4)}` }
+        : {};
 
     return {
       lobId: LOB_ID,
@@ -343,8 +402,15 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
       status: "DRAFT",
       isActive: true,
       applicabilityCriteria,
-      kpiConditions: { minAchievementPct: minAchievementPct(kpi.templateId, kpi.config, gates) },
-      ruleDefinition: { kpiCode, payoutType: "CASH", tiers: tiersFor(kpi.templateId, kpi.config) },
+      ...(hurdle ? { kpiConditions: { hurdle } } : {}),
+      ruleDefinition: {
+        kpiCode,
+        stepUpBy1Percent: payout.stepUpBy1Percent,
+        ...(payout.startingEarning != null ? { startingEarning: payout.startingEarning } : {}),
+        keyRules,
+        ...cutoff,
+        tiers: payout.tiers,
+      },
       kpiConfig: {
         kpiType,
         name: `${ruleName} – ${kpiType}`,
