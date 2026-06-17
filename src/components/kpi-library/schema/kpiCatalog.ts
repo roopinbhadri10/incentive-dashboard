@@ -38,10 +38,18 @@ export interface KpiCatalog {
 export function buildCatalog(metas: KpiMeta[], visibleIds?: string[]): KpiCatalog {
   const all = metas.map((meta): CatalogEntry => {
     const compute = COMPUTE_REGISTRY[meta.computeId];
+    // The config carries `sections` nested inside `defaultConfig` (single config
+    // object per KPI). Split them back out here: `sections` is presentation-only
+    // schema the renderer reads off `meta.sections`, while `configValues` is the
+    // actual value object cloned per instance — it must stay schema-free so it
+    // doesn't bleed into the saved rule payload (kpiConfig.templateConfig).
+    const { sections = [], ...configValues } =
+      (meta.defaultConfig ?? {}) as { sections?: KpiMeta["sections"] } & Record<string, unknown>;
+    const normMeta: KpiMeta = { ...meta, sections, defaultConfig: configValues };
     return {
-      meta,
-      tag: meta.tag,
-      defaultConfig: () => structuredClone(meta.defaultConfig),
+      meta: normMeta,
+      tag: normMeta.tag,
+      defaultConfig: () => structuredClone(configValues),
       maxPayout: (cfg) => compute.maxPayout(cfg),
       summarize: (cfg) => compute.summarize(cfg),
     };

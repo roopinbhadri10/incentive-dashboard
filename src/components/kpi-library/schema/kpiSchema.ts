@@ -187,9 +187,14 @@ export interface KpiMeta {
   cadenceLabel?: string; // "Monthly payout" / "Quarterly payout"
   /** Named math used for header max / summarize / earning ladders / validation. */
   computeId: ComputeId;
-  /** Initial config value object (plain JSON; cloned per instance). */
+  /** Initial config value object (plain JSON; cloned per instance). In the stored
+   *  config this also nests the `sections` array (single config object per KPI);
+   *  `buildCatalog` splits `sections` back out to `meta.sections` and leaves
+   *  `defaultConfig` as the schema-free value object that's cloned per instance. */
   defaultConfig: unknown;
   /** Extra header badges as plain text (e.g. "Bill value: GSV"). */
   headerBadges?: string[];
-  sections: SectionSchema[];
+  /** Ordered editor sections. Stored nested inside `defaultConfig`; populated at
+   *  top level by `buildCatalog` for the renderer (absent on the raw config). */
+  sections?: SectionSchema[];
 }

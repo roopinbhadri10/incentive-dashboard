@@ -705,7 +705,7 @@ export function ConfigDrivenKpiCard({ meta, tag, value, onChange, lockedRole, hi
 
   // Visible sections (respect visibleWhen + role-selector gating), with running
   // numbers assigned only to visible `numbered` sections.
-  const sections = meta.sections.filter((s) => {
+  const sections = (meta.sections ?? []).filter((s) => {
     if (s.onlyWithRoleSelector && hideRoleSelector) return false;
     return visible(s.visibleWhen, cfg);
   });
