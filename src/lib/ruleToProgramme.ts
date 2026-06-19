@@ -25,12 +25,16 @@ export function getSourceRule(programme: Programme): RuleRecord | undefined {
   return programme.id ? SOURCE_RULE.get(programme.id) : undefined;
 }
 
-const STATUSES: ProgrammeStatus[] = ["draft", "active", "locked", "archived"];
+const STATUSES: ProgrammeStatus[] = ["draft", "active", "locked", "archived", "inactive"];
 
 function toStatus(raw: string | undefined, isActive: boolean | undefined): ProgrammeStatus {
+  // isActive is the authoritative "turned off" flag, so it wins over the raw
+  // status string — a rule can come back as status:"DRAFT" + isActive:false and
+  // must still surface under the Inactive filter, not Draft.
+  if (isActive === false) return "inactive";
   const s = (raw ?? "").toLowerCase();
   if ((STATUSES as string[]).includes(s)) return s as ProgrammeStatus;
-  return isActive === false ? "archived" : "draft";
+  return "draft";
 }
 
 /** Pull the CCD/HCD division out of any applicabilityCriteria shape, if present. */

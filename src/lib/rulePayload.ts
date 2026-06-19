@@ -90,6 +90,9 @@ export interface RuleApiPayload {
     kpiCode: string;
     stepUpBy1Percent: boolean;
     startingEarning?: number;
+    // Max earning achievable for this KPI — the top of the staircase/tier curve
+    // (same value the wizard surfaces as the KPI's "max earning").
+    maxEarning: number;
     keyRules: string[];
     // Phasing cut-off — only present when the KPI defines a cut-off day;
     // resolves the day-of-month to DD-MM-YYYY for the rule's period.
@@ -379,6 +382,7 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
     // Engine KPI code from the KPI config (falls back to the template id).
     const kpiCode = meta?.kpiCode ?? kpi.templateId;
     const payout = buildPayout(kpi.templateId, kpi.config);
+    const maxEarning = Math.round(KPI_TEMPLATE_MAP[kpi.templateId]?.maxPayout(kpi.config) ?? 0);
     const keyRules = (kpi.config as SlabLikeConfig).keyNotes ?? [];
     const hurdle = hurdleFor(gates);
     // Phasing cut-off: resolve the day-of-month onto the rule's month/year
@@ -407,6 +411,7 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
         kpiCode,
         stepUpBy1Percent: payout.stepUpBy1Percent,
         ...(payout.startingEarning != null ? { startingEarning: payout.startingEarning } : {}),
+        maxEarning,
         keyRules,
         ...cutoff,
         tiers: payout.tiers,

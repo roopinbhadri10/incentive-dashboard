@@ -17,9 +17,8 @@ describe("buildCatalog — value-object reconstruction", () => {
       const sections = (meta.defaultSection ?? []) as Array<
         Record<string, unknown> & { kind: string; defaults?: Record<string, unknown> }
       >;
-      const expected: Record<string, unknown> = structuredClone(
-        (meta.defaultConfig ?? {}) as Record<string, unknown>,
-      );
+      const expected: Record<string, unknown> =
+        meta.dataFeed != null ? { dataFeed: meta.dataFeed } : {};
       for (const s of sections) {
         if (s.kind === "gates" && !s.defaults) {
           expected[s.enabledPath as string] ??= false;

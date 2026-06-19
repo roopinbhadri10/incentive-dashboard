@@ -38,15 +38,15 @@ export interface KpiCatalog {
 export function buildCatalog(metas: KpiMeta[], visibleIds?: string[]): KpiCatalog {
   const all = metas.map((meta): CatalogEntry => {
     const compute = COMPUTE_REGISTRY[meta.computeId];
-    // Reassemble the per-instance value object: the small `defaultConfig` base
-    // (non-section scalars) plus every section's co-located `defaults` fragment.
-    // Section keys don't overlap, so a shallow merge is exact. `gates` sections
-    // imply the standard disabled/empty pair when they carry no `defaults`. The
-    // resulting `configValues` is the schema-free object cloned per instance — its
-    // shape is load-bearing for the saved rule payload (kpiConfig.templateConfig).
+    // Reassemble the per-instance value object: the lone `dataFeed` base scalar
+    // plus every section's co-located `defaults` fragment. Section keys don't
+    // overlap, so a shallow merge is exact. `gates` sections imply the standard
+    // disabled/empty pair when they carry no `defaults`. The resulting
+    // `configValues` is the schema-free object cloned per instance — its shape is
+    // load-bearing for the saved rule payload (kpiConfig.templateConfig).
     const sections = meta.defaultSection ?? [];
-    const base = (meta.defaultConfig ?? {}) as Record<string, unknown>;
-    const configValues: Record<string, unknown> = structuredClone(base);
+    const configValues: Record<string, unknown> =
+      meta.dataFeed != null ? { dataFeed: meta.dataFeed } : {};
     for (const s of sections) {
       if (s.kind === "gates" && !s.defaults) {
         configValues[s.enabledPath] ??= false;

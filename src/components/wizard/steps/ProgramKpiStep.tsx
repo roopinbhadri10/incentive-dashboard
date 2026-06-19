@@ -1062,9 +1062,17 @@ export function ProgramKpiStep({
               />
             </>
           ) : (
-            <Card className="p-12 text-center text-sm text-muted-foreground border-dashed">
-              Add a KPI to start configuring.
-            </Card>
+            <div className="flex min-h-[460px] flex-col items-center justify-center rounded-xl border-2 border-dashed border-border p-12 text-center">
+              <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary/10">
+                <Sparkles size={32} className="text-primary" />
+              </div>
+              <h3 className="mt-6 text-lg font-bold text-foreground">
+                Your KPI configuration will appear here
+              </h3>
+              <p className="mt-2 max-w-sm text-sm text-muted-foreground">
+                Select a KPI from the left to begin, or click <span className="font-semibold text-foreground">Add KPI</span> to browse the library.
+              </p>
+            </div>
           )}
         </div>
       </div>

@@ -189,6 +189,13 @@
     background: linear-gradient(270deg, #00C6B1 13.38%, #227C9D 90.4%);
   }
 
+  .programmes-banner {
+    background:
+      linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px) 0 0 / 34px 34px,
+      linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px) 0 0 / 34px 34px,
+      linear-gradient(100deg, #0b3b39 0%, #0d2335 46%, #121838 100%);
+  }
+
   .highlight-green {
     background-color: hsl(var(--highlight-green));
     color: hsl(var(--highlight-green-text));

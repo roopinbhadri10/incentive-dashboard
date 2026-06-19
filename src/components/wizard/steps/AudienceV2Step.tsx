@@ -399,22 +399,30 @@ export function AudienceV2Step({ value, onChange }: Props) {
 
       {/* Division */}
       <Card className="p-5 space-y-3">
-        <Label className="text-sm font-medium">Select Division</Label>
-        <div className="flex flex-wrap gap-2">
-          {(["CCD", "HCD"] as Channel[]).map((c) => {
-            const active = value.division === c;
+        <Label className="text-sm font-medium">Division</Label>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {([
+            { id: "CCD", name: "Consumer Care Division" },
+            { id: "HCD", name: "Healthcare Division" },
+          ] as { id: Channel; name: string }[]).map((d) => {
+            const active = value.division === d.id;
             return (
               <button
-                key={c}
-                onClick={() => setDivision(c)}
-                className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full border transition-all ${
+                key={d.id}
+                onClick={() => setDivision(d.id)}
+                className={`relative text-left rounded-xl border p-4 transition-all ${
                   active
-                    ? "border-primary bg-primary text-primary-foreground shadow-sm"
-                    : "border-border bg-background text-muted-foreground hover:text-foreground hover:border-muted-foreground/40 hover:bg-muted/40"
+                    ? "border-primary ring-1 ring-primary bg-primary/5 shadow-sm"
+                    : "border-border bg-background hover:border-muted-foreground/40 hover:bg-muted/30"
                 }`}
               >
-                {active && <Check size={12} strokeWidth={3} />}
-                {c}
+                {active && (
+                  <span className="absolute top-3 right-3 inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                    <Check size={12} strokeWidth={3} />
+                  </span>
+                )}
+                <div className="text-lg font-bold text-foreground">{d.id}</div>
+                <div className="text-sm text-muted-foreground mt-1">{d.name}</div>
               </button>
             );
           })}

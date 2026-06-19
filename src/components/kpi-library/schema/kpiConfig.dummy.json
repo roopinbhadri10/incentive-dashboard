@@ -9,7 +9,6 @@
       "sample": "Cross-sell + Recover · % accepted · up to ₹4,000",
       "cadenceLabel": "Monthly payout",
       "computeId": "aiReco",
-      "defaultConfig": {},
       "defaultSection": [
         {
           "kind": "info",
@@ -82,7 +81,6 @@
       "sample": "Slabs 95% → 110% · ₹2,400 → ₹6,000",
       "cadenceLabel": "Monthly payout",
       "computeId": "slabEarnings",
-      "defaultConfig": {},
       "defaultSection": [
         {
           "kind": "target-source",
@@ -165,7 +163,6 @@
       "sample": "By day 20 · 55% → 75% · ₹450 → ₹1,330",
       "cadenceLabel": "Monthly payout",
       "computeId": "slabEarnings",
-      "defaultConfig": {},
       "defaultSection": [
         {
           "kind": "field-group",
@@ -278,7 +275,6 @@
       "sample": "Min ₹250 GSV/bill · 150 → 250 outlets",
       "cadenceLabel": "Monthly payout",
       "computeId": "ecoLadder",
-      "defaultConfig": {},
       "defaultSection": [
         {
           "kind": "field-group",
@@ -435,7 +431,6 @@
       "sample": "Min 750 · Max 2,500 · ₹1/line",
       "cadenceLabel": "Monthly payout",
       "computeId": "linesLadder",
-      "defaultConfig": {},
       "defaultSection": [
         {
           "kind": "field-group",
@@ -593,7 +588,6 @@
       "sample": "Min 200 · Max 800 · ₹3/line · Focus SKU list",
       "cadenceLabel": "Monthly payout",
       "computeId": "linesLadder",
-      "defaultConfig": {},
       "defaultSection": [
         {
           "kind": "field-group",
@@ -759,7 +753,6 @@
       "sample": "MR ₹6,000 · ASO GT + Region up to ₹21,600",
       "cadenceLabel": "Quarterly payout",
       "computeId": "slabEarnings",
-      "defaultConfig": {},
       "defaultSection": [
         {
           "kind": "target-source",
@@ -847,7 +840,7 @@
       "sample": "85% → 100% · 4 slabs · up to ₹4,000",
       "cadenceLabel": "Monthly payout",
       "computeId": "simpleLadder",
-      "defaultConfig": { "dataFeed": "sfa" },
+      "dataFeed": "sfa",
       "defaultSection": [
         {
           "kind": "slabs",
@@ -913,7 +906,7 @@
       "sample": "5 → 20 outlets · up to ₹3,000",
       "cadenceLabel": "Monthly payout",
       "computeId": "simpleLadder",
-      "defaultConfig": { "dataFeed": "sfa" },
+      "dataFeed": "sfa",
       "defaultSection": [
         {
           "kind": "slabs",
@@ -979,7 +972,7 @@
       "sample": "40% → 85% · up to ₹3,600",
       "cadenceLabel": "Monthly payout",
       "computeId": "simpleLadder",
-      "defaultConfig": { "dataFeed": "sfa" },
+      "dataFeed": "sfa",
       "defaultSection": [
         {
           "kind": "slabs",
@@ -1045,7 +1038,7 @@
       "sample": "18 → 30 calls/day · up to ₹2,800",
       "cadenceLabel": "Monthly payout",
       "computeId": "simpleLadder",
-      "defaultConfig": { "dataFeed": "sfa" },
+      "dataFeed": "sfa",
       "defaultSection": [
         {
           "kind": "slabs",
@@ -1111,7 +1104,7 @@
       "sample": "80% → 95% · up to ₹2,000",
       "cadenceLabel": "Monthly payout",
       "computeId": "simpleLadder",
-      "defaultConfig": { "dataFeed": "sfa" },
+      "dataFeed": "sfa",
       "defaultSection": [
         {
           "kind": "slabs",
@@ -1176,7 +1169,7 @@
       "sample": "70% → 100% · up to ₹3,000",
       "cadenceLabel": "Monthly payout",
       "computeId": "simpleLadder",
-      "defaultConfig": { "dataFeed": "sfa" },
+      "dataFeed": "sfa",
       "defaultSection": [
         {
           "kind": "slabs",
@@ -1241,7 +1234,7 @@
       "sample": "3 → 7 lines · up to ₹2,600",
       "cadenceLabel": "Monthly payout",
       "computeId": "simpleLadder",
-      "defaultConfig": { "dataFeed": "sfa" },
+      "dataFeed": "sfa",
       "defaultSection": [
         {
           "kind": "slabs",

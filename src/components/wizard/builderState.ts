@@ -215,21 +215,14 @@ export const emptyAudience: AudienceV2State = {
   userListBatchIds: [],
 };
 
-export const DEFAULT_CHANNELS = [
-  "General Trade",
-  "Modern Trade",
-  "Wholesale",
-  "E-commerce",
-  "HoReCa",
-];
-
 export const emptyBuilder: BuilderState = {
   basics: emptyBasics,
   audience: emptyAudience,
   kpis: [],
   programKpis: [],
   kpiGroups: [],
-  channels: [...DEFAULT_CHANNELS],
+  // Populated from SalesHub /outlets/stats; stays empty if that call fails.
+  channels: [],
   gates: [],
 };
 

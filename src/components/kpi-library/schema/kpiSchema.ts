@@ -206,12 +206,15 @@ export interface KpiMeta {
   cadenceLabel?: string; // "Monthly payout" / "Quarterly payout"
   /** Named math used for header max / summarize / earning ladders / validation. */
   computeId: ComputeId;
-  /** Base config value object — only the scalars NOT owned by any section (e.g.
-   *  `dataFeed`). Section-specific defaults live on each section's `defaults`.
-   *  `buildCatalog` merges base + every section's `defaults` into the full value
-   *  object that's cloned per instance (its shape is load-bearing for rule-payload
-   *  serialization and MUST NOT change). Often `{}`. */
-  defaultConfig: unknown;
+  /** Data source feeding this KPI's achievement. The one base scalar not owned by
+   *  any section; `buildCatalog` seeds it into the per-instance value object's
+   *  `dataFeed`. Omitted for KPIs that don't carry one. */
+  dataFeed?: "ai-ml" | "sfa" | "manual" | "upload";
+  /** The full per-instance value object — NOT authored in config. `buildCatalog`
+   *  assembles it from `dataFeed` plus every section's `defaults` and writes it
+   *  here on the normalized meta the renderer reads (its shape is load-bearing for
+   *  rule-payload serialization and MUST NOT change). */
+  defaultConfig?: unknown;
   /** Extra header badges as plain text (e.g. "Bill value: GSV"). */
   headerBadges?: string[];
   /** Ordered editor sections, each carrying its own `defaults` fragment.

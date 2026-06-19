@@ -145,6 +145,26 @@ function statusPillClasses(status: ProgrammeStatus): string {
     case "active":   return "bg-emerald-50 text-emerald-700 border-emerald-200";
     case "locked":   return "bg-amber-50 text-amber-800 border-amber-200";
     case "archived": return "bg-muted/50 text-muted-foreground/70 border-border";
+    case "inactive": return "bg-rose-50 text-rose-700 border-rose-200";
+  }
+}
+
+// Left-edge accent bar shown only for live programmes (matches the Active
+// treatment in the list design); other statuses render a flush card.
+function statusAccentClass(status: ProgrammeStatus): string {
+  return status === "active"
+    ? "border-l-[3px] border-l-emerald-500 bg-emerald-50/30"
+    : "";
+}
+
+// Small status dot beside the programme name — green for live, grey otherwise.
+function statusDotClass(status: ProgrammeStatus): string {
+  switch (status) {
+    case "active":   return "bg-emerald-500";
+    case "locked":   return "bg-amber-500";
+    case "inactive": return "bg-rose-500";
+    case "draft":    return "bg-muted-foreground/40";
+    case "archived": return "bg-muted-foreground/40";
   }
 }
 
@@ -166,7 +186,7 @@ export function ProgramsPage({
   const [searchQuery, setSearchQuery] = useState("");
   const [channelFilter, setChannelFilter] = useState<"all" | ChannelType>("all");
   const [roleFilter, setRoleFilter] = useState<"all" | string>("all");
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "draft" | "archived">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "draft" | "archived" | "inactive">("all");
   const [periodFilter, setPeriodFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"newest" | "earning" | "period" | "name">("newest");
   const [selected, setSelected] = useState<string[]>([]);
@@ -291,25 +311,26 @@ export function ProgramsPage({
       <div className="flex-1 overflow-y-auto bg-background">
         <div className="bg-card rounded-xl mx-4 mt-4 mb-4 p-4 space-y-4">
           {/* Header */}
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-1 h-[26px] bg-primary rounded-full" />
-              <div>
-                <h1 className="text-[22px] font-semibold text-foreground leading-tight">
-                  Programmes
-                </h1>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {filtered.length} of {programmes.length} programmes
-                </p>
+          <div className="programmes-banner relative -mx-4 -mt-4 overflow-hidden rounded-t-xl px-6 py-6">
+            <div className="relative flex items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="h-12 w-1.5 rounded-full bg-gradient-to-b from-[#00C6B1] to-[#227C9D]" />
+                <div>
+                  <h1 className="text-3xl font-bold leading-tight text-white">
+                    Programmes
+                  </h1>
+                  <p className="mt-1 text-sm text-white/50">
+                    <span className="font-semibold text-[#2DD4BF]">{filtered.length}</span> of {programmes.length} programmes
+                  </p>
+                </div>
               </div>
+              <button
+                onClick={onCreateNew}
+                className="gradient-create-btn inline-flex h-11 items-center gap-2 rounded-xl px-5 text-sm font-semibold text-white shadow-lg shadow-[#00C6B1]/20 transition hover:brightness-110"
+              >
+                <Plus size={18} /> New programme
+              </button>
             </div>
-            <Button
-              size="sm"
-              className="gap-1.5 text-xs h-9"
-              onClick={onCreateNew}
-            >
-              <Plus size={14} /> New programme
-            </Button>
           </div>
 
           {/* Saved programmes (created via wizard) */}
@@ -387,6 +408,7 @@ export function ProgramsPage({
                     <SelectItem value="active">Live</SelectItem>
                     <SelectItem value="draft">Draft</SelectItem>
                     <SelectItem value="archived">Ended</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
                   </SelectContent>
                 </Select>
                 <Select value={periodFilter} onValueChange={setPeriodFilter}>
@@ -535,6 +557,7 @@ function ProgrammeRow({
     <Card
       className={cn(
         "group border transition-all hover:shadow-sm hover:border-primary/30 overflow-hidden",
+        statusAccentClass(programme.status),
         selected && "border-primary/50 bg-primary/[0.02]",
         expanded && "border-primary/40 shadow-sm",
       )}
@@ -561,6 +584,13 @@ function ProgrammeRow({
             <p className="text-sm font-semibold text-foreground truncate">
               {programme.name}
             </p>
+            <span
+              className={cn(
+                "inline-flex w-2 h-2 rounded-full shrink-0",
+                statusDotClass(programme.status),
+              )}
+              aria-hidden
+            />
             {pendingMdm && (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1076,17 +1106,18 @@ function StatusPillBar({
   onChange,
   programmes,
 }: {
-  value: "all" | "active" | "draft" | "archived";
-  onChange: (v: "all" | "active" | "draft" | "archived") => void;
+  value: "all" | "active" | "draft" | "archived" | "inactive";
+  onChange: (v: "all" | "active" | "draft" | "archived" | "inactive") => void;
   programmes: Programme[];
 }) {
   const counts = useMemo(() => {
-    const c = { all: 0, active: 0, draft: 0, archived: 0 };
+    const c = { all: 0, active: 0, draft: 0, archived: 0, inactive: 0 };
     programmes.forEach((p) => {
       c.all += 1;
       if (p.status === "active") c.active += 1;
       else if (p.status === "draft") c.draft += 1;
       else if (p.status === "archived" || p.status === "locked") c.archived += 1;
+      else if (p.status === "inactive") c.inactive += 1;
     });
     return c;
   }, [programmes]);
@@ -1096,6 +1127,7 @@ function StatusPillBar({
     { key: "active", label: "Live" },
     { key: "draft", label: "Draft" },
     { key: "archived", label: "Ended" },
+    { key: "inactive", label: "Inactive" },
   ];
 
   return (

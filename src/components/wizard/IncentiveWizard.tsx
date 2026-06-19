@@ -44,13 +44,12 @@ export function IncentiveWizard({ onBack, prefill, onPublished }: IncentiveWizar
   const { toast } = useToast();
   const publishingRef = useRef(false);
 
-  // Fetch channels from SalesHub on mount; keeps DEFAULT_CHANNELS as fallback if fetch fails.
+  // Fetch channels from SalesHub on mount. If the call fails, channels stay
+  // empty — no default/fallback channels are shown.
   useEffect(() => {
     fetchChannelNames()
-      .then((names) => {
-        if (names.length > 0) setState((s) => ({ ...s, channels: names }));
-      })
-      .catch(() => { /* silently keep default channels */ });
+      .then((names) => setState((s) => ({ ...s, channels: names })))
+      .catch(() => { /* leave channels empty on failure */ });
     // Warm the role → API value mapping so buildRulePayloads can resolve it,
     // including clone/template flows that start straight on the Review step.
     fetchRolePayloadValues().catch(() => { /* non-fatal */ });

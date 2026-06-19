@@ -22,7 +22,7 @@ export type WorkingSegment =
 
 export type Geography = "all-india" | "kerala" | "urban-cities" | "other-markets";
 
-export type ProgrammeStatus = "draft" | "active" | "locked" | "archived";
+export type ProgrammeStatus = "draft" | "active" | "locked" | "archived" | "inactive";
 
 export type DataFeedType = "ai-ml" | "mdm-upload" | "manual" | "proxy";
 

@@ -73,13 +73,25 @@ export function BasicsStep({ value, onChange }: Props) {
       [0, 1, 2].some((i) => ((qq.startMonth - 1 + i) % 12) + 1 === value.month),
     ) ?? QUARTERS[0];
 
+  const periodLabel = PERIODS.find((p) => p.id === value.period)?.label ?? "—";
+  const whenLabel = isQuarterScoped(value.period)
+    ? `Q${activeQuarter.id} ${value.year}`
+    : `${MONTHS[value.month - 1]} ${value.year}`;
+  const attainLabel = ATTAIN.find((a) => a.id === value.attainmentBasis)?.label ?? "—";
+  const payoutLabel =
+    value.payoutFrequency === "on-completion"
+      ? "On completion"
+      : value.payoutFrequency.charAt(0).toUpperCase() + value.payoutFrequency.slice(1);
+
   return (
-    <div className="space-y-5 animate-fade-in max-w-3xl">
+    <div className="space-y-5 animate-fade-in max-w-6xl">
       <div>
         <h2 className="text-xl font-semibold">Programme basics</h2>
         <p className="text-sm text-muted-foreground">Set the foundation for your incentive plan.</p>
       </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-[1.7fr_1fr] gap-5 items-start">
+        <div className="space-y-5">
       <Card className="p-5 space-y-2">
         <Label className="text-sm font-medium">Programme name</Label>
         <Input
@@ -261,6 +273,50 @@ export function BasicsStep({ value, onChange }: Props) {
           </Select>
         </div>
       </Card>
+        </div>
+
+        <aside className="lg:sticky lg:top-4 min-w-0">
+          <Card className="p-5 space-y-4 border-l-4 border-l-primary">
+            <div className="space-y-1">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Programme summary
+              </div>
+              <div
+                className={`text-base break-words line-clamp-2 ${
+                  value.name.trim()
+                    ? "font-bold text-foreground"
+                    : "italic font-normal text-muted-foreground"
+                }`}
+                title={value.name.trim() || "Untitled programme"}
+              >
+                {value.name.trim() || "Untitled programme"}
+              </div>
+            </div>
+
+            <div className="space-y-2.5 text-sm">
+              <SummaryRow label="Period" value={periodLabel} />
+              <SummaryRow label="When" value={whenLabel} />
+              <SummaryRow label="Attainment" value={attainLabel} />
+              <SummaryRow label="Currency" value={value.currency} />
+              <SummaryRow label="Payout" value={payoutLabel} />
+            </div>
+
+            <div className="flex items-start gap-2 rounded-lg bg-primary/5 px-3 py-2.5 text-xs text-muted-foreground">
+              <span aria-hidden>💡</span>
+              <span>A clear name makes it easy to find this programme later.</span>
+            </div>
+          </Card>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-medium text-foreground text-right">{value}</span>
     </div>
   );
 }
