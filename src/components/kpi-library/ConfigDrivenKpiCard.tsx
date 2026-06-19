@@ -669,6 +669,28 @@ function SectionView({ section, num, cfg, setCfg }: { section: SectionSchema; nu
         </section>
       );
     }
+    case "cap": {
+      const base = section.path ?? "cap";
+      const fields: Field[] = [
+        { kind: "switch", path: `${base}.enabled`, onLabel: "Cap enabled", offLabel: "No cap", inline: true },
+        {
+          kind: "number", path: `${base}.${section.valueKey}`, label: "Cap at",
+          suffix: section.suffix, inline: true,
+          visibleWhen: { path: `${base}.enabled`, truthy: true },
+        },
+      ];
+      return (
+        <section className="space-y-2">
+          {section.title && <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{numLabel}{section.title}</Label>}
+          <div className="flex items-center gap-4 flex-wrap">
+            {fields.map((f, i) => <FieldControl key={`${f.path}-${i}`} field={f} cfg={cfg} setCfg={setCfg} />)}
+          </div>
+          <p className="text-xs text-muted-foreground flex items-start gap-1.5">
+            <Info size={12} className="mt-0.5 shrink-0" /> Beyond the cap, no additional reward is offered no matter how far the limit is exceeded.
+          </p>
+        </section>
+      );
+    }
     case "gates":
       return <GatesEditor section={section} cfg={cfg} setCfg={setCfg} indexLabel={numLabel} />;
     case "key-notes":
@@ -716,8 +738,11 @@ function SectionView({ section, num, cfg, setCfg }: { section: SectionSchema; nu
 export function ConfigDrivenKpiCard({ meta, tag, value, onChange, lockedRole, hideRoleSelector }: ConfigDrivenKpiCardProps) {
   const [cfg, setCfg] = useControlled<Cfg>(value as Cfg | undefined, onChange as ((v: Cfg) => void) | undefined, structuredClone(meta.defaultConfig) as Cfg);
 
-  // Coerce role when a locked role is supplied by the caller.
-  const lockedCfgRole = lockedRole === "aso" ? "aso_ase" : lockedRole === "mr" ? "mr" : undefined;
+  // Lock the config role to the audience ONLY for leaf MR roles, which have no
+  // juniors and so must pay on own achievement. ASO/ASE keep whatever role the
+  // instance already has and default to "own achievement" — the Earning-basis
+  // selector is where the user opts into the juniors' average basis instead.
+  const lockedCfgRole = lockedRole === "mr" ? "mr" : undefined;
   useEffect(() => {
     if (lockedCfgRole && getPath(cfg, "role") !== lockedCfgRole) setCfg((c) => setPath(c, "role", lockedCfgRole) as Cfg);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -727,7 +752,7 @@ export function ConfigDrivenKpiCard({ meta, tag, value, onChange, lockedRole, hi
 
   // Visible sections (respect visibleWhen + role-selector gating), with running
   // numbers assigned only to visible `numbered` sections.
-  const sections = (meta.sections ?? []).filter((s) => {
+  const sections = (meta.defaultSection ?? []).filter((s) => {
     if (s.onlyWithRoleSelector && hideRoleSelector) return false;
     return visible(s.visibleWhen, cfg);
   });

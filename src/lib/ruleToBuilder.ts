@@ -229,10 +229,37 @@ export function normalizeRuleTiers(rd: RuleRecord["ruleDefinition"] | undefined)
  * reconstruct a config that reproduces the SAME tiers, merged over the template's
  * defaults for fields the tiers don't carry. Generic across KPI types: the slab
  * shape is detected from the template's default config, not hard-coded per id.
+ *
+ * `rd` carries the non-curve ruleDefinition fields the editor also round-trips —
+ * `keyRules` (→ keyNotes) and `stepUpBy1Percent` (→ slab stepMode). Without them
+ * the restored config falls back to the template defaults for the key notes and
+ * always reads as step-up mode, even when the saved rule was a pure slab.
  */
-function configFromTiers(tpl: CatalogEntry, tiers: RuleTier[] | undefined): unknown {
+function configFromTiers(
+  tpl: CatalogEntry,
+  tiers: RuleTier[] | undefined,
+  rd?: RuleRecord["ruleDefinition"],
+): unknown {
   const base = tpl.defaultConfig() as Record<string, unknown>;
-  if (!tiers?.length) return base;
+
+  // Overlay the ruleDefinition fields that live outside the payout curve. Key
+  // notes apply to every KPI type; the saved `keyRules` replace the template
+  // defaults whenever the rule carries any (an empty list means "use defaults").
+  const withExtras = (cfg: Record<string, unknown>): Record<string, unknown> => {
+    const out = { ...cfg };
+    if (Array.isArray(rd?.keyRules) && rd.keyRules.length && "keyNotes" in base) {
+      out.keyNotes = [...rd.keyRules];
+    }
+    // Phasing cut-off — the rule stores it as DD-MM-YYYY (see rulePayload.ts);
+    // recover just the day-of-month back into cutoffDay.
+    if (rd?.cutOfDate && "cutoffDay" in base) {
+      const day = Number(rd.cutOfDate.split("-")[0]);
+      if (Number.isFinite(day) && day > 0) out.cutoffDay = day;
+    }
+    return out;
+  };
+
+  if (!tiers?.length) return withExtras(base);
 
   const defSlabs = base.slabs as Array<Record<string, unknown>> | undefined;
   const first = defSlabs?.[0];
@@ -242,6 +269,16 @@ function configFromTiers(tpl: CatalogEntry, tiers: RuleTier[] | undefined): unkn
   if (Array.isArray(defSlabs) && slabTiers.length) {
     // Percentage slabs (nsv / phasing / qnsv) — cumulative payout per % boundary.
     if (first && "pct" in first) {
+      // stepUpBy1Percent is only meaningful for percentage slabs; it decides how
+      // the slab is stored. Default to step-up when the rule predates the flag.
+      const stepUp = rd?.stepUpBy1Percent !== false;
+      const stepMode = stepUp ? "stepup" : "slab";
+      if (!stepUp) {
+        // Pure slab: each slab's entryPayout IS the absolute cumulative payout the
+        // tier carries (see computeSlabEarnings, mode "slab"). ratePerPct is unused.
+        const slabs = slabTiers.map((t) => ({ pct: t.minVal, ratePerPct: 0, entryPayout: t.payout }));
+        return withExtras({ ...base, slabs, stepMode });
+      }
       const slabs = slabTiers.map((t, i) => {
         if (i === 0) return { pct: t.minVal, ratePerPct: 0, entryPayout: t.payout };
         const prev = slabTiers[i - 1];
@@ -251,12 +288,12 @@ function configFromTiers(tpl: CatalogEntry, tiers: RuleTier[] | undefined): unkn
       // The entry slab's ₹/1% is unused by the payout math and unrecoverable;
       // mirror the next slab's rate so the card shows a sensible value.
       if (slabs.length > 1) slabs[0].ratePerPct = (slabs[1] as { ratePerPct: number }).ratePerPct;
-      return { ...base, slabs };
+      return withExtras({ ...base, slabs, stepMode });
     }
     // Threshold slabs (collection / new_outlets) — absolute payout at a threshold.
     if (first && "threshold" in first) {
       const slabs = slabTiers.map((t) => ({ threshold: t.minVal, payout: t.payout }));
-      return { ...base, slabs };
+      return withExtras({ ...base, slabs });
     }
     // Outlet-count slabs (eco) — cumulative per-outlet rate.
     if (first && "count" in first) {
@@ -269,7 +306,7 @@ function configFromTiers(tpl: CatalogEntry, tiers: RuleTier[] | undefined): unkn
         prevCount = t.minVal;
         return { count: t.minVal, ratePerOutlet };
       });
-      return { ...base, slabs };
+      return withExtras({ ...base, slabs });
     }
   }
 
@@ -279,11 +316,11 @@ function configFromTiers(tpl: CatalogEntry, tiers: RuleTier[] | undefined): unkn
     const mid = tiers[1];
     if (mid) {
       const ratePerLine = mid.maxVal ? Math.round(mid.payout / mid.maxVal) : (base.ratePerLine as number);
-      return { ...base, minLines: mid.minVal, maxLines: mid.maxVal, ratePerLine };
+      return withExtras({ ...base, minLines: mid.minVal, maxLines: mid.maxVal, ratePerLine });
     }
   }
 
-  return base;
+  return withExtras(base);
 }
 
 export function ruleToBuilder(rule: RuleRecord): BuilderState {
@@ -322,7 +359,9 @@ export function ruleToBuilder(rule: RuleRecord): BuilderState {
   // Restore the config straight from the API: the verbatim copy if the engine
   // kept it, else rebuilt from the payout tiers it returns. Template defaults
   // apply only when the rule carries no tiers at all.
-  const config = ui.templateConfig ?? configFromTiers(tpl, normalizeRuleTiers(rule.ruleDefinition));
+  const config =
+    ui.templateConfig ??
+    configFromTiers(tpl, normalizeRuleTiers(rule.ruleDefinition), rule.ruleDefinition);
   const customName = ui.customName;
 
   return {

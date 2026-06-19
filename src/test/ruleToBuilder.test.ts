@@ -101,6 +101,108 @@ describe("ruleToBuilder", () => {
     expect(b.audience.geographies).toEqual(["All India"]);
   });
 
+  it("restores keyRules → keyNotes and step-up stepMode when the engine dropped templateConfig", () => {
+    // No kpiConfig.templateConfig, so the config is rebuilt from ruleDefinition.
+    // keyRules and stepUpBy1Percent must round-trip, not fall back to defaults.
+    const rule: RuleRecord = {
+      ruleName: "NSV Step-up",
+      calculationFrequency: "MONTHLY",
+      kpiCombination: "TARGET_VS_ACHIEVEMENT",
+      effectiveFrom: "2026-06-01",
+      ruleDefinition: {
+        kpiCode: "NSV",
+        stepUpBy1Percent: true,
+        startingEarning: 2400,
+        keyRules: ["Custom note A", "Custom note B"],
+        tiers: [
+          { min: 95, payoutValue: 0 },
+          { min: 100, payoutValue: 320 },
+          { min: 105, payoutValue: 200 },
+          { min: 110, payoutValue: 200 },
+        ],
+      },
+    };
+    const cfg = ruleToBuilder(rule).programKpis[0].config as {
+      keyNotes: string[];
+      stepMode: string;
+      slabs: Array<{ pct: number; ratePerPct: number; entryPayout?: number }>;
+    };
+    expect(cfg.keyNotes).toEqual(["Custom note A", "Custom note B"]);
+    expect(cfg.stepMode).toBe("stepup");
+    expect(cfg.slabs.map((s) => s.pct)).toEqual([95, 100, 105, 110]);
+    expect(cfg.slabs[0].entryPayout).toBe(2400);
+    expect(cfg.slabs.map((s) => s.ratePerPct)).toEqual([320, 320, 200, 200]);
+  });
+
+  it("restores stepMode 'slab' with per-slab entryPayout for a pure-slab (FIXED) rule", () => {
+    const rule: RuleRecord = {
+      ruleName: "NSV Pure Slab",
+      calculationFrequency: "MONTHLY",
+      kpiCombination: "TARGET_VS_ACHIEVEMENT",
+      effectiveFrom: "2026-06-01",
+      ruleDefinition: {
+        kpiCode: "NSV",
+        stepUpBy1Percent: false,
+        keyRules: ["Slab note"],
+        tiers: [
+          { min: 95, payoutType: "FIXED", payoutValue: 2400 },
+          { min: 100, payoutType: "FIXED", payoutValue: 4000 },
+          { min: 105, payoutType: "FIXED", payoutValue: 5000 },
+          { min: 110, payoutType: "FIXED", payoutValue: 6000 },
+        ],
+      },
+    };
+    const cfg = ruleToBuilder(rule).programKpis[0].config as {
+      keyNotes: string[];
+      stepMode: string;
+      slabs: Array<{ pct: number; entryPayout?: number }>;
+    };
+    expect(cfg.keyNotes).toEqual(["Slab note"]);
+    expect(cfg.stepMode).toBe("slab");
+    // In slab mode every slab carries its absolute payout in entryPayout.
+    expect(cfg.slabs.map((s) => s.entryPayout)).toEqual([2400, 4000, 5000, 6000]);
+  });
+
+  it("restores the phasing cutoffDay from ruleDefinition.cutOfDate (DD-MM-YYYY)", () => {
+    const rule: RuleRecord = {
+      ruleName: "Sales Phasing",
+      calculationFrequency: "MONTHLY",
+      kpiCombination: "SALES_TARGET",
+      effectiveFrom: "2026-06-01",
+      ruleDefinition: {
+        kpiCode: "SALES_PHASING",
+        stepUpBy1Percent: true,
+        cutOfDate: "18-06-2026",
+        keyRules: [],
+        tiers: [
+          { min: 55, payoutValue: 0 },
+          { min: 75, payoutValue: 38 },
+        ],
+      },
+    };
+    const cfg = ruleToBuilder(rule).programKpis[0].config as { cutoffDay: number };
+    expect(ruleToBuilder(rule).programKpis[0].templateId).toBe("phasing");
+    expect(cfg.cutoffDay).toBe(18);
+  });
+
+  it("keeps the template default key notes when ruleDefinition.keyRules is empty", () => {
+    const rule: RuleRecord = {
+      ruleName: "NSV Default Notes",
+      calculationFrequency: "MONTHLY",
+      kpiCombination: "TARGET_VS_ACHIEVEMENT",
+      effectiveFrom: "2026-06-01",
+      ruleDefinition: {
+        kpiCode: "NSV",
+        stepUpBy1Percent: true,
+        keyRules: [],
+        tiers: [{ min: 95, payoutValue: 0 }],
+      },
+    };
+    const cfg = ruleToBuilder(rule).programKpis[0].config as { keyNotes: string[] };
+    // Falls back to the catalog defaults rather than an empty list.
+    expect(cfg.keyNotes.length).toBeGreaterThan(0);
+  });
+
   it("supports the legacy { zones, channels } criteria shape and maps the KPI type", () => {
     const rule: RuleRecord = {
       ruleName: "Coverage Push",

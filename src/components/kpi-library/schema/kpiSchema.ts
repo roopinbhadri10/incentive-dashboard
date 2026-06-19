@@ -87,6 +87,12 @@ interface SectionBase {
   visibleWhen?: VisibleWhen | VisibleWhen[];
   /** Render only when the role selector is shown (review views), not editors. */
   onlyWithRoleSelector?: boolean;
+  /** Section-specific default values — a fragment of the KPI's config value
+   *  object, co-located with the section that edits it (instead of a separate
+   *  flat blob). `buildCatalog` merges every section's `defaults` (plus the
+   *  KPI's small `defaultConfig` base) into the initial value object. The
+   *  renderer ignores this field; it's data, not presentation. */
+  defaults?: Record<string, unknown>;
 }
 
 export interface FieldGroupSection extends SectionBase {
@@ -114,6 +120,18 @@ export interface SlabsSection extends SectionBase {
 export interface EarningLadderSection extends SectionBase {
   kind: "earning-ladder";
   computeId: ComputeId;
+}
+
+// Compact cap editor. Replaces the verbose switch+number+note `field-group`
+// that was repeated per KPI — only the value path and unit suffix differ.
+export interface CapSection extends SectionBase {
+  kind: "cap";
+  /** Base path of the cap object. Default "cap". */
+  path?: string; // "cap"
+  /** Key under `path` holding the cap value (e.g. "pct" | "value" | "outlets"). */
+  valueKey: string;
+  /** Suffix after the cap value input (e.g. "% achievement", "outlets"). */
+  suffix: string;
 }
 
 export interface GatesSection extends SectionBase {
@@ -161,6 +179,7 @@ export type SectionSchema =
   | FieldGroupSection
   | SlabsSection
   | EarningLadderSection
+  | CapSection
   | GatesSection
   | KeyNotesSectionSchema
   | TargetSourceSection
@@ -187,14 +206,15 @@ export interface KpiMeta {
   cadenceLabel?: string; // "Monthly payout" / "Quarterly payout"
   /** Named math used for header max / summarize / earning ladders / validation. */
   computeId: ComputeId;
-  /** Initial config value object (plain JSON; cloned per instance). In the stored
-   *  config this also nests the `sections` array (single config object per KPI);
-   *  `buildCatalog` splits `sections` back out to `meta.sections` and leaves
-   *  `defaultConfig` as the schema-free value object that's cloned per instance. */
+  /** Base config value object — only the scalars NOT owned by any section (e.g.
+   *  `dataFeed`). Section-specific defaults live on each section's `defaults`.
+   *  `buildCatalog` merges base + every section's `defaults` into the full value
+   *  object that's cloned per instance (its shape is load-bearing for rule-payload
+   *  serialization and MUST NOT change). Often `{}`. */
   defaultConfig: unknown;
   /** Extra header badges as plain text (e.g. "Bill value: GSV"). */
   headerBadges?: string[];
-  /** Ordered editor sections. Stored nested inside `defaultConfig`; populated at
-   *  top level by `buildCatalog` for the renderer (absent on the raw config). */
-  sections?: SectionSchema[];
+  /** Ordered editor sections, each carrying its own `defaults` fragment.
+   *  Paired with `defaultConfig`: the default section layout for this KPI. */
+  defaultSection?: SectionSchema[];
 }

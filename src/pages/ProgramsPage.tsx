@@ -23,8 +23,19 @@ import {
   Lock,
   BarChart3,
 } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
-import { fetchRules } from "@/lib/ruleApi";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { archiveRule, fetchRules } from "@/lib/ruleApi";
+import { useToast } from "@/hooks/use-toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   fetchProgramRoles,
   fetchRolePayloadValues,
@@ -190,6 +201,28 @@ export function ProgramsPage({
         fetchRoleDesignations().catch(() => { /* non-fatal */ }),
       ]);
       return rules.map(ruleToProgramme);
+    },
+  });
+
+  // Archive a programme via DELETE /v1/rules/{id}, then refetch the list so the
+  // row drops out (or re-renders as Ended once the engine reflects it).
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const archiveMutation = useMutation({
+    mutationFn: ({ id }: { id: string; name: string }) => archiveRule(id),
+    onSuccess: (_data, { name }) => {
+      queryClient.invalidateQueries({ queryKey: ["rules"] });
+      toast({
+        title: "Programme archived",
+        description: `“${name}” has been archived.`,
+      });
+    },
+    onError: (err) => {
+      toast({
+        title: "Couldn't archive programme",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
     },
   });
 
@@ -411,6 +444,8 @@ export function ProgramsPage({
                     onEdit={() => onOpenProgram(p)}
                     onClone={() => onCloneProgram(p)}
                     onViewAnalytics={onViewAnalytics ? () => onViewAnalytics(p.id) : undefined}
+                    onArchive={() => archiveMutation.mutate({ id: p.id, name: p.name })}
+                    isArchiving={archiveMutation.isPending && archiveMutation.variables?.id === p.id}
                   />
                 ))}
                 {filtered.length === 0 && (
@@ -474,6 +509,8 @@ function ProgrammeRow({
   onEdit,
   onClone,
   onViewAnalytics,
+  onArchive,
+  isArchiving,
 }: {
   programme: Programme;
   selected: boolean;
@@ -483,11 +520,16 @@ function ProgrammeRow({
   onEdit: () => void;
   onClone: () => void;
   onViewAnalytics?: () => void;
+  onArchive: () => void;
+  isArchiving: boolean;
 }) {
   const channel = CHANNEL_STYLE[programme.channel];
   const segmentLabel = formatSegment(programme);
   const pendingMdm = hasPendingMdmUpload(programme);
   const canEdit = programme.status === "draft";
+  // Drafts and live programmes can be ended; already-archived ones can't.
+  const canArchive = programme.status === "draft" || programme.status === "active";
+  const [confirmArchive, setConfirmArchive] = useState(false);
 
   return (
     <Card
@@ -632,16 +674,48 @@ function ProgrammeRow({
               <DropdownMenuItem onClick={onClone} className="gap-2 text-xs">
                 <Copy size={12} /> Clone
               </DropdownMenuItem>
-              {canEdit && (
+              {canArchive && (
                 <>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem className="gap-2 text-xs text-destructive focus:text-destructive">
+                  <DropdownMenuItem
+                    onSelect={(e) => {
+                      // Keep the menu's close-on-select, but defer opening the
+                      // dialog so it doesn't race the dropdown's unmount.
+                      e.preventDefault();
+                      setConfirmArchive(true);
+                    }}
+                    disabled={isArchiving}
+                    className="gap-2 text-xs text-destructive focus:text-destructive"
+                  >
                     <Archive size={12} /> Archive
                   </DropdownMenuItem>
                 </>
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {/* Archive confirmation */}
+          <AlertDialog open={confirmArchive} onOpenChange={setConfirmArchive}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Archive this programme?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  “{programme.name}” will be archived in the incentive engine and removed
+                  from the active list. This can't be undone here.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={isArchiving}>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={onArchive}
+                  disabled={isArchiving}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  {isArchiving ? "Archiving…" : "Archive"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </div>
 

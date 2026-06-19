@@ -714,12 +714,13 @@ export function ProgramKpiStep({
   };
 
   const addKpis = (newKpis: ProgramKpi[]) => {
-    // Apply role default per template
+    // Default every role-aware KPI to the user's OWN achievement (slab-based).
+    // ASO/ASE can switch to the juniors' average basis from the Earning-basis
+    // selector; we no longer pre-select juniors just because the audience is ASO.
     const stamped = newKpis.map((k) => {
       const cfg = k.config as { role?: string };
       const map = ROLE_AWARE[k.templateId];
-      if (map && lockedRole === "aso") cfg.role = map.juniors;
-      else if (map && lockedRole === "mr") cfg.role = map.own;
+      if (map) cfg.role = map.own;
       return { ...k, config: cfg };
     });
     onChange([...value, ...stamped]);

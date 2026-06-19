@@ -37,6 +37,24 @@ export async function submitRules(payloads: RuleApiPayload[]): Promise<unknown[]
   return results;
 }
 
+/**
+ * Archive (delete) a rule by id — `DELETE /v1/rules/{id}`.
+ * The engine returns 204/200 with no meaningful body on success.
+ */
+export async function archiveRule(id: string): Promise<void> {
+  if (!id) throw new Error("Cannot archive a rule without an id.");
+  const res = await fetch(`${RULES_ENDPOINT}/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: {
+      "X-Tenant-Id": TENANT_ID,
+    },
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Rule API responded ${res.status}${detail ? `: ${detail}` : ""}`);
+  }
+}
+
 /** A rule as returned by `GET /v1/rules` — the POST payload plus server-assigned fields. */
 export interface RuleRecord {
   id?: string;
