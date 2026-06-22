@@ -203,6 +203,88 @@ describe("ruleToBuilder", () => {
     expect(cfg.keyNotes.length).toBeGreaterThan(0);
   });
 
+  it("recovers per-outlet rates (not 0) when rebuilding an eco rule from rate-based tiers", () => {
+    const rule: RuleRecord = {
+      ruleName: "Outlet Coverage",
+      calculationFrequency: "MONTHLY",
+      kpiCombination: "COVERAGE",
+      effectiveFrom: "2026-06-01",
+      ruleDefinition: {
+        kpiCode: "ECO",
+        // Real eco payloads emit stepUpBy1Percent: true but carry no startingEarning,
+        // so reconstruction must read the rate directly (not accumulate it).
+        stepUpBy1Percent: true,
+        keyRules: [],
+        minBillAmount: 250,
+        cap: { enabled: true, value: 300 },
+        // No kpiConfig.templateConfig → forces reconstruction from tiers. Each band's
+        // payoutValue is the ₹-per-outlet rate, not a cumulative earning. The trailing
+        // { min: 300, max: null, payoutValue: 0 } is the cap sentinel and must be
+        // dropped (not rebuilt as a spurious 5th slab).
+        tiers: [
+          { min: 150, max: 200, payoutType: "FIXED", payoutValue: 42 },
+          { min: 200, max: 225, payoutType: "FIXED", payoutValue: 25 },
+          { min: 225, max: 250, payoutType: "FIXED", payoutValue: 26 },
+          { min: 250, max: 300, payoutType: "FIXED", payoutValue: 24 },
+          { min: 300, max: null, payoutType: "FIXED", payoutValue: 0 },
+        ],
+      },
+    };
+    const cfg = ruleToBuilder(rule).programKpis[0].config as {
+      slabs: Array<{ count: number; ratePerOutlet: number }>;
+      minBillEnabled: boolean;
+      minBillAmount: number;
+      cap: { enabled: boolean; outlets: number };
+    };
+    expect(cfg.slabs).toEqual([
+      { count: 150, ratePerOutlet: 42 },
+      { count: 200, ratePerOutlet: 25 },
+      { count: 225, ratePerOutlet: 26 },
+      { count: 250, ratePerOutlet: 24 },
+    ]);
+    // Min bill value threshold recovered from ruleDefinition (presence ⇒ enabled).
+    expect(cfg.minBillEnabled).toBe(true);
+    expect(cfg.minBillAmount).toBe(250);
+    // Cap toggle + value restored onto the KPI-specific cap key (outlets for eco).
+    expect(cfg.cap).toEqual({ enabled: true, outlets: 300 });
+  });
+
+  it("recovers the per-line rate (not 0) when rebuilding a line-based rule from tiers", () => {
+    const rule: RuleRecord = {
+      ruleName: "Lines Sold",
+      calculationFrequency: "MONTHLY",
+      kpiCombination: "UNIQUE_LINE_COUNT",
+      effectiveFrom: "2026-06-01",
+      ruleDefinition: {
+        kpiCode: "TLSD",
+        // Real line-based payloads emit stepUpBy1Percent: true but carry no
+        // startingEarning, so reconstruction reads the rate directly.
+        stepUpBy1Percent: true,
+        keyRules: [],
+        minQtyValue: 5,
+        // No templateConfig → reconstruction from tiers. The [minLines, maxLines]
+        // band's payoutValue is the ₹-per-line rate, not the computed top payout.
+        tiers: [
+          { min: 750, max: 2500, payoutType: "FIXED", payoutValue: 4 },
+          { min: 2500, max: null, payoutType: "FIXED", payoutValue: 0 },
+        ],
+      },
+    };
+    const cfg = ruleToBuilder(rule).programKpis[0].config as {
+      minLines: number;
+      maxLines: number;
+      ratePerLine: number;
+      minQtyEnabled: boolean;
+      minQtyValue: number;
+    };
+    expect(cfg.minLines).toBe(750);
+    expect(cfg.maxLines).toBe(2500);
+    expect(cfg.ratePerLine).toBe(4);
+    // Min qty to qualify a line is recovered from ruleDefinition (presence ⇒ enabled).
+    expect(cfg.minQtyEnabled).toBe(true);
+    expect(cfg.minQtyValue).toBe(5);
+  });
+
   it("supports the legacy { zones, channels } criteria shape and maps the KPI type", () => {
     const rule: RuleRecord = {
       ruleName: "Coverage Push",

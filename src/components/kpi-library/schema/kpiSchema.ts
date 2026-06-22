@@ -18,6 +18,7 @@
 export interface VisibleWhen {
   path: string;
   equals?: unknown;
+  notEquals?: unknown;
   in?: unknown[];
   truthy?: boolean;
 }

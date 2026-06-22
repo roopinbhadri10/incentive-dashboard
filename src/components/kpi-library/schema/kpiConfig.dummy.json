@@ -123,6 +123,7 @@
           "id": "cap",
           "title": "Cap (maximum payable achievement)",
           "numbered": true,
+          "visibleWhen": { "path": "stepMode", "notEquals": "slab" },
           "valueKey": "pct",
           "suffix": "% achievement",
           "defaults": { "cap": { "enabled": true, "pct": 110 } }
@@ -223,6 +224,7 @@
           "id": "cap",
           "title": "Cap (maximum payable achievement)",
           "numbered": true,
+          "visibleWhen": { "path": "stepMode", "notEquals": "slab" },
           "valueKey": "pct",
           "suffix": "% achievement",
           "defaults": { "cap": { "enabled": true, "pct": 75 } }
@@ -524,33 +526,9 @@
               "label": "Min qty",
               "min": 1,
               "visibleWhen": { "path": "minQtyEnabled", "truthy": true }
-            },
-            {
-              "kind": "select",
-              "path": "minQtyUom",
-              "label": "UOM",
-              "visibleWhen": { "path": "minQtyEnabled", "truthy": true },
-              "options": [
-                { "value": "case", "label": "Case" },
-                { "value": "piece", "label": "Piece" },
-                { "value": "carton", "label": "Carton" },
-                { "value": "kg", "label": "Kg" },
-                { "value": "litre", "label": "Litre" },
-                { "value": "other", "label": "Other…" }
-              ]
-            },
-            {
-              "kind": "text",
-              "path": "minQtyUomOther",
-              "label": "Custom UOM",
-              "placeholder": "e.g. dozen",
-              "visibleWhen": [
-                { "path": "minQtyEnabled", "truthy": true },
-                { "path": "minQtyUom", "equals": "other" }
-              ]
             }
           ],
-          "defaults": { "minQtyEnabled": false, "minQtyValue": 1, "minQtyUom": "case" }
+          "defaults": { "minQtyEnabled": false, "minQtyValue": 1 }
         },
         {
           "kind": "gates",
@@ -689,33 +667,9 @@
               "label": "Min qty",
               "min": 1,
               "visibleWhen": { "path": "minQtyEnabled", "truthy": true }
-            },
-            {
-              "kind": "select",
-              "path": "minQtyUom",
-              "label": "UOM",
-              "visibleWhen": { "path": "minQtyEnabled", "truthy": true },
-              "options": [
-                { "value": "case", "label": "Case" },
-                { "value": "piece", "label": "Piece" },
-                { "value": "carton", "label": "Carton" },
-                { "value": "kg", "label": "Kg" },
-                { "value": "litre", "label": "Litre" },
-                { "value": "other", "label": "Other…" }
-              ]
-            },
-            {
-              "kind": "text",
-              "path": "minQtyUomOther",
-              "label": "Custom UOM",
-              "placeholder": "e.g. dozen",
-              "visibleWhen": [
-                { "path": "minQtyEnabled", "truthy": true },
-                { "path": "minQtyUom", "equals": "other" }
-              ]
             }
           ],
-          "defaults": { "minQtyEnabled": false, "minQtyValue": 1, "minQtyUom": "case" }
+          "defaults": { "minQtyEnabled": false, "minQtyValue": 1 }
         },
         {
           "kind": "gates",
@@ -795,6 +749,7 @@
           "id": "cap",
           "title": "Cap (maximum payable achievement)",
           "numbered": true,
+          "visibleWhen": { "path": "stepMode", "notEquals": "slab" },
           "valueKey": "pct",
           "suffix": "% achievement",
           "defaults": { "cap": { "enabled": true, "pct": 110 } }

@@ -44,22 +44,51 @@ export interface ApplicabilityCriteria {
 }
 
 /**
- * One payout tier. `min` is the achievement boundary it starts at (applies until
- * the next tier's `min`). In step-up mode `payoutValue` is the ₹-per-1% rate over
- * the previous boundary; otherwise it is the absolute payout at that boundary and
- * `payoutType` is "FIXED".
+ * One emitted payout tier — an explicit `[min, max)` achievement range. `max` is
+ * the next tier's `min` (the boundary the tier runs until); the final tier is
+ * open-ended (`max: null`). `payoutType` is always "FIXED". In step-up mode
+ * `payoutValue` is the ₹-per-1% rate over the previous boundary; otherwise it is
+ * the absolute payout for the range.
  */
 export interface RuleTier {
   min: number;
+  max: number | null;
+  payoutType: "FIXED";
   payoutValue: number;
-  payoutType?: "FIXED";
+}
+
+/** Raw tier as derived from a slab config, before being projected onto ranges. */
+interface RawTier {
+  min: number;
+  payoutValue: number;
 }
 
 /** The payout-curve portion of ruleDefinition derived from a KPI's slab config. */
 interface RuleDefinitionPayout {
+  // Emitted on ruleDefinition. True for every per-unit/linear curve — step-up %,
+  // per-outlet (eco) and per-line (lines) — so the engine multiplies the rate by
+  // the units in the band rather than treating it as a fixed payout.
   stepUpBy1Percent: boolean;
+  // % step-up only: a band's rate leads UP to the NEXT slab (the 100%-row rate is
+  // for the 95→100 band), so the range projection shifts rates by one. Per-outlet /
+  // per-line curves keep each band's own rate, so they leave this false.
+  rateLeadsNextSlab?: boolean;
   startingEarning?: number;
-  tiers: RuleTier[];
+  tiers: RawTier[];
+  // Whether to emit the open-ended `max: null` tier past the top boundary. Driven by
+  // the KPI's cap toggle (cap.enabled); lines always cap (maxLines is structural).
+  // When false, only the bounded `[min, max)` ranges are emitted.
+  emitTail?: boolean;
+  // Cap-aware flows (step-up %, outlet-count): the final (tail) tier always survives,
+  // but its `max` is bounded to this cap value when capping is enabled, or left open
+  // (`null`) when it is not. Undefined for flows that don't bound the tail this way.
+  capMax?: number | null;
+  // When the tail is emitted in a non-step-up flow, whether it earns 0 (a hard cap to
+  // zero, e.g. lines) instead of holding the last range's payout (slab/threshold/eco).
+  zeroTail?: boolean;
+  // True when the tiers represent line counts (TLSD / DBB "Lines-based earning")
+  // rather than achievement % or amounts. Surfaced as a flag on ruleDefinition.
+  lineBased?: boolean;
 }
 
 export interface ProductFilter {
@@ -88,6 +117,10 @@ export interface RuleApiPayload {
   kpiConditions?: { hurdle: { date?: string; required_percentage: number } };
   ruleDefinition: {
     kpiCode: string;
+    // KPI instance id from the KPI config (falls back to the template id).
+    kpiId: string;
+    // Human-readable KPI name (custom name, else the template's display name).
+    kpiName: string;
     stepUpBy1Percent: boolean;
     startingEarning?: number;
     // Max earning achievable for this KPI — the top of the staircase/tier curve
@@ -97,6 +130,15 @@ export interface RuleApiPayload {
     // Phasing cut-off — only present when the KPI defines a cut-off day;
     // resolves the day-of-month to DD-MM-YYYY for the rule's period.
     cutOfDate?: string;
+    // Present and true only for line-count KPIs (TLSD / DBB "Lines-based earning").
+    lineBasedEarning?: boolean;
+    // Minimum bill value threshold (outlet-count KPIs) — only when the threshold is enabled.
+    minBillAmount?: number;
+    // Minimum qty for a line to qualify (line-count KPIs) — only when enabled.
+    minQtyValue?: number;
+    // Cap (max payable achievement / outlets / …) so the editor can restore the
+    // toggle + value. `value` is the KPI-specific cap amount (pct / outlets / …).
+    cap?: { enabled: boolean; value: number | null };
     tiers: RuleTier[];
   };
   kpiConfig: {
@@ -251,7 +293,18 @@ interface SlabLikeConfig {
   maxLines?: number;
   ratePerLine?: number;
   keyNotes?: string[];
+  // Outlet-count KPIs — minimum bill value threshold (only meaningful when enabled).
+  minBillEnabled?: boolean;
+  minBillAmount?: number;
+  // Line-count KPIs — minimum qty for a line to qualify (only meaningful when enabled).
+  minQtyEnabled?: boolean;
+  minQtyValue?: number;
   cutoffDay?: number; // phasing KPIs — day-of-month cut-off (e.g. 20).
+  // Cap toggle — shape varies by KPI (pct / value / outlets), but every variant
+  // carries `enabled`. Drives whether an open-ended tail tier is emitted. The cap
+  // value lives under a KPI-specific key: `pct` for step-up % KPIs (max payable
+  // achievement), `outlets` for outlet-count KPIs (max payable outlets).
+  cap?: { enabled?: boolean; pct?: number; outlets?: number };
 }
 
 /**
@@ -263,14 +316,21 @@ interface SlabLikeConfig {
 function buildPayout(templateId: KpiTemplateId, config: unknown): RuleDefinitionPayout {
   const cfg = (config ?? {}) as SlabLikeConfig;
   const slabs = cfg.slabs ?? [];
+  // The open tail is emitted only when the KPI's cap is enabled.
+  const emitTail = cfg.cap?.enabled === true;
 
   // NSV / phasing / quarterly — percentage slabs.
   if (slabs.length && slabs[0].pct != null) {
     if ((cfg.stepMode ?? "stepup") === "stepup") {
       // Step-up: startingEarning at the entry slab, then ₹-per-1% rate per slab.
+      // The open tail is always kept; its `max` is the cap % when capping is on,
+      // else null (unbounded achievement past the top slab).
       return {
         stepUpBy1Percent: true,
+        rateLeadsNextSlab: true,
         startingEarning: Math.round(slabs[0].entryPayout ?? 0),
+        emitTail,
+        capMax: cfg.cap?.enabled === true ? cfg.cap.pct ?? null : null,
         tiers: slabs.map((s, i) => ({
           min: s.pct ?? 0,
           payoutValue: i === 0 ? 0 : Math.round(s.ratePerPct ?? 0),
@@ -281,9 +341,9 @@ function buildPayout(templateId: KpiTemplateId, config: unknown): RuleDefinition
     const earnings = computeSlabEarnings(slabs as NsvSlab[], "slab");
     return {
       stepUpBy1Percent: false,
+      emitTail,
       tiers: slabs.map((s, i) => ({
         min: s.pct ?? 0,
-        payoutType: "FIXED",
         payoutValue: Math.round(earnings[i]?.cumulative ?? 0),
       })),
     };
@@ -293,36 +353,48 @@ function buildPayout(templateId: KpiTemplateId, config: unknown): RuleDefinition
   if (slabs.length && slabs[0].threshold != null) {
     return {
       stepUpBy1Percent: false,
+      emitTail,
       tiers: slabs.map((s) => ({
         min: s.threshold ?? 0,
-        payoutType: "FIXED",
         payoutValue: Math.round(s.payout ?? 0),
       })),
     };
   }
 
-  // ECO — outlet-count slabs with cumulative per-outlet rate.
+  // ECO — outlet-count slabs. Each band carries its own ₹-per-outlet rate (the
+  // value the user typed), not a cumulative earning — mirroring how step-up %
+  // emits the ₹-per-1% rate rather than the computed payout.
   if (slabs.length && slabs[0].count != null) {
-    let cum = 0;
-    let prevCount = 0;
     return {
-      stepUpBy1Percent: false,
-      tiers: slabs.map((s) => {
-        cum += ((s.count ?? 0) - prevCount) * (s.ratePerOutlet ?? 0);
-        prevCount = s.count ?? 0;
-        return { min: s.count ?? 0, payoutType: "FIXED", payoutValue: Math.round(cum) };
-      }),
+      // Per-outlet rate is linear in outlet count → step-up. The range projection
+      // keeps each band's own rate (rateLeadsNextSlab stays false).
+      stepUpBy1Percent: true,
+      emitTail,
+      // The tail is bounded to the cap (max payable outlets) when capping is on,
+      // else left open (max: null).
+      capMax: cfg.cap?.enabled === true ? cfg.cap.outlets ?? null : null,
+      tiers: slabs.map((s) => ({
+        min: s.count ?? 0,
+        payoutValue: Math.round(s.ratePerOutlet ?? 0),
+      })),
     };
   }
 
-  // Lines (TLSD / DBB) — min..max lines at a per-line rate (top payout from minLines on).
+  // Lines (TLSD / DBB) — min..max lines, each line earning the ₹-per-line rate (the
+  // value the user typed), not the computed top payout. maxLines is a structural
+  // hard cap, so the open tail is always emitted and earns 0 — nothing past maxLines.
   if (cfg.minLines != null && cfg.maxLines != null) {
-    const top = Math.round(cfg.maxLines * (cfg.ratePerLine ?? 0));
+    const rate = Math.round(cfg.ratePerLine ?? 0);
     return {
-      stepUpBy1Percent: false,
+      // Per-line rate is linear in line count → step-up. Each band keeps its own
+      // rate (rateLeadsNextSlab stays false); the open tail past maxLines earns 0.
+      stepUpBy1Percent: true,
+      emitTail: true,
+      zeroTail: true,
+      lineBased: true,
       tiers: [
-        { min: cfg.minLines, payoutType: "FIXED", payoutValue: top },
-        { min: cfg.maxLines, payoutType: "FIXED", payoutValue: top },
+        { min: cfg.minLines, payoutValue: rate },
+        { min: cfg.maxLines, payoutValue: rate },
       ],
     };
   }
@@ -331,8 +403,77 @@ function buildPayout(templateId: KpiTemplateId, config: unknown): RuleDefinition
   const max = KPI_TEMPLATE_MAP[templateId]?.maxPayout(config) ?? 0;
   return {
     stepUpBy1Percent: false,
-    tiers: [{ min: 0, payoutType: "FIXED", payoutValue: Math.round(max ?? 0) }],
+    tiers: [{ min: 0, payoutValue: Math.round(max ?? 0) }],
   };
+}
+
+/**
+ * Project raw tiers onto the engine's range format: each tier becomes an explicit
+ * `[min, max)` range with `payoutType: "FIXED"`, where `max` is the next tier's
+ * `min` and the final tier is open-ended (`max: null`).
+ *
+ * The payout a range carries depends on the mode:
+ *  • Step-up — the ₹-per-1% rate belongs to the band leading UP to a slab (the rate
+ *    on the 100% row is for the 95→100 band), so a range `[min_i, max_i)` takes the
+ *    next tier's rate. Nothing is earned past the top slab, so the open tail is 0.
+ *  • Pure-slab/FIXED — the payout sits on the band's own lower boundary, so a range
+ *    keeps its own value.
+ *
+ * The open-ended `max: null` tier is emitted only when `emitTail` is set (the KPI's
+ * cap is enabled, or lines). When emitted its value is 0 for step-up and `zeroTail`
+ * flows (hard cap to zero, e.g. lines); otherwise the tail simply keeps the last
+ * tier's own payout. Without `emitTail`, only the bounded `[min, max)` ranges are
+ * kept — but a lone tier always survives (the list is never emptied).
+ *
+ * Cap-aware flows (step-up %, outlet-count) pass `capMax` and always keep their
+ * tail; `capMax` decides that tail's `max`: the cap value when capping is enabled,
+ * or null (unbounded) when it is not.
+ */
+function toRangeTiers(
+  tiers: RawTier[],
+  {
+    stepUp,
+    emitTail,
+    zeroTail,
+    capMax,
+  }: { stepUp: boolean; emitTail: boolean; zeroTail: boolean; capMax?: number | null },
+): RuleTier[] {
+  // Cap-aware flows opt into the bounded/open tail by passing `capMax` (number or null).
+  const capAware = capMax !== undefined;
+  const ranges = tiers.map((t, i) => {
+    const isLast = i === tiers.length - 1;
+    const isTail = isLast && tiers.length > 1;
+    let payoutValue: number;
+    if (stepUp) {
+      // A step-up band carries the rate leading up to the NEXT slab. The tail tier
+      // keeps earning at the last band's own rate — whether bounded by a cap or left
+      // open (max: null). Only line-based KPIs (zeroTail) drop the tail to 0.
+      payoutValue = isLast ? t.payoutValue : tiers[i + 1].payoutValue;
+    } else if (isTail && zeroTail) {
+      payoutValue = 0;
+    } else {
+      payoutValue = t.payoutValue;
+    }
+    // Cap-aware flows bound the open tail to the cap value when capping is on;
+    // otherwise (and for non-cap-aware flows) the last tier stays open-ended.
+    const max = isLast ? (capAware ? capMax ?? null : null) : tiers[i + 1].min;
+    return {
+      min: t.min,
+      max,
+      payoutType: "FIXED" as const,
+      payoutValue,
+    };
+  });
+  // Cap-aware flows always keep their tail (its `max` already encodes the cap, or
+  // null when uncapped). For other flows the open tail survives only when emitTail
+  // is set; otherwise keep just the bounded ranges — but never empty the list.
+  const result = capAware || emitTail || ranges.length <= 1 ? ranges : ranges.slice(0, -1);
+  // When a cap is enabled, nothing is earned beyond it — append an explicit open
+  // tail at 0 from the cap boundary onward.
+  if (capAware && capMax != null) {
+    result.push({ min: capMax, max: null, payoutType: "FIXED", payoutValue: 0 });
+  }
+  return result;
 }
 
 /**
@@ -381,6 +522,10 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
     const baseKpiName = meta?.baseKpiName ?? meta?.name ?? kpi.templateId;
     // Engine KPI code from the KPI config (falls back to the template id).
     const kpiCode = meta?.kpiCode ?? kpi.templateId;
+    // KPI instance id from the KPI config (falls back to the template id).
+    const kpiId = meta?.id ?? kpi.templateId;
+    // Human-readable KPI name — the instance's custom name, else the template name.
+    const kpiName = kpi.customName?.trim() || meta?.name || kpiCode;
     const payout = buildPayout(kpi.templateId, kpi.config);
     const maxEarning = Math.round(KPI_TEMPLATE_MAP[kpi.templateId]?.maxPayout(kpi.config) ?? 0);
     const keyRules = (kpi.config as SlabLikeConfig).keyNotes ?? [];
@@ -391,6 +536,28 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
     const cutoff =
       cutoffDay != null
         ? { cutOfDate: `${pad2(cutoffDay)}-${from.slice(5, 7)}-${from.slice(0, 4)}` }
+        : {};
+    // Minimum bill value threshold (outlet-count KPIs) — emitted only when enabled.
+    const cfg = kpi.config as SlabLikeConfig;
+    const minBill =
+      cfg.minBillEnabled && cfg.minBillAmount != null ? { minBillAmount: cfg.minBillAmount } : {};
+    // Minimum qty to qualify a line (line-count KPIs) — emitted only when enabled.
+    const minQty =
+      cfg.minQtyEnabled && cfg.minQtyValue != null ? { minQtyValue: cfg.minQtyValue } : {};
+    // Cap (max payable achievement / outlets / …) — carry the toggle + value so the
+    // editor can restore it. The cap amount lives under a KPI-specific key; take the
+    // first numeric non-`enabled` entry (pct / outlets / value / lines / …).
+    const capRaw = (kpi.config as { cap?: Record<string, unknown> }).cap;
+    const cap =
+      capRaw && typeof capRaw === "object"
+        ? {
+            cap: {
+              enabled: !!capRaw.enabled,
+              value: (Object.entries(capRaw).find(
+                ([k, v]) => k !== "enabled" && typeof v === "number"
+              )?.[1] ?? null) as number | null,
+            },
+          }
         : {};
 
     return {
@@ -409,12 +576,25 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
       ...(hurdle ? { kpiConditions: { hurdle } } : {}),
       ruleDefinition: {
         kpiCode,
+        kpiId,
+        kpiName,
         stepUpBy1Percent: payout.stepUpBy1Percent,
         ...(payout.startingEarning != null ? { startingEarning: payout.startingEarning } : {}),
         maxEarning,
         keyRules,
         ...cutoff,
-        tiers: payout.tiers,
+        ...minBill,
+        ...minQty,
+        ...cap,
+        ...(payout.lineBased ? { lineBasedEarning: true } : {}),
+        tiers: toRangeTiers(payout.tiers, {
+          // Only % step-up shifts a band's rate to the next slab; per-outlet/per-line
+          // curves keep their own rate even though they emit stepUpBy1Percent: true.
+          stepUp: payout.rateLeadsNextSlab ?? false,
+          emitTail: payout.emitTail ?? false,
+          zeroTail: payout.zeroTail ?? false,
+          capMax: payout.capMax,
+        }),
       },
       kpiConfig: {
         kpiType,

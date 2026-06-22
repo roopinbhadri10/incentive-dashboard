@@ -45,7 +45,8 @@ export interface LinesConfig {
   countingLevel: LineCountingLevel;
   minQtyEnabled: boolean;
   minQtyValue: number;
-  minQtyUom: MinQtyUom;
+  // UOM is no longer captured in the editor; kept optional for legacy/round-trip data.
+  minQtyUom?: MinQtyUom;
   minQtyUomOther?: string;
   minLines: number;
   maxLines: number;

@@ -80,9 +80,19 @@ export interface RuleRecord {
     startingEarning?: number;
     keyRules?: string[];
     cutOfDate?: string;
-    // New tiers use {min, payoutValue[, payoutType]}; legacy use {minVal, maxVal, payout}.
+    lineBasedEarning?: boolean;
+    // Minimum bill value threshold (eco) / min qty to qualify a line (lines) —
+    // emitted only when their toggle is enabled.
+    minBillAmount?: number;
+    minQtyValue?: number;
+    // Cap (max payable achievement / outlets / …) — carried so the editor can
+    // restore the cap toggle + value. `value` is the KPI-specific cap amount.
+    cap?: { enabled?: boolean; value?: number | null };
+    // New tiers use {min, max, payoutType, payoutValue}; legacy use {minVal, maxVal, payout}.
+    // `max` is the open end of the top tier (null); older new-shape rules omit it.
     tiers?: Array<{
       min?: number;
+      max?: number | null;
       payoutValue?: number;
       payoutType?: string;
       minVal?: number;

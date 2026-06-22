@@ -17,6 +17,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { useControlled } from "./useControlled";
+import { isCapInvalid, lastSlabBoundary } from "./capValidation";
 import { KeyNotesSection } from "./KeyNotesSection";
 import { TargetSourceSelector } from "./TargetSourceSelector";
 import { SlabsEditor } from "./SlabsEditor";
@@ -58,6 +59,7 @@ type SetCfg = (next: Cfg | ((p: Cfg) => Cfg)) => void;
 function passes(cond: VisibleWhen, cfg: unknown): boolean {
   const v = getPath(cfg, cond.path);
   if (cond.equals !== undefined) return v === cond.equals;
+  if (cond.notEquals !== undefined) return v !== cond.notEquals;
   if (cond.in !== undefined) return cond.in.includes(v);
   if (cond.truthy !== undefined) return cond.truthy ? !!v : !v;
   return true;
@@ -671,11 +673,16 @@ function SectionView({ section, num, cfg, setCfg }: { section: SectionSchema; nu
     }
     case "cap": {
       const base = section.path ?? "cap";
+      // A cap must sit strictly above the last slab boundary, else it would cap away
+      // part of the configured curve. Restrict the input (min) and flag it when invalid.
+      const topSlab = lastSlabBoundary(cfg);
+      const capInvalid = isCapInvalid(cfg);
       const fields: Field[] = [
         { kind: "switch", path: `${base}.enabled`, onLabel: "Cap enabled", offLabel: "No cap", inline: true },
         {
           kind: "number", path: `${base}.${section.valueKey}`, label: "Cap at",
           suffix: section.suffix, inline: true,
+          ...(topSlab != null ? { min: topSlab + 1 } : {}),
           visibleWhen: { path: `${base}.enabled`, truthy: true },
         },
       ];
@@ -685,9 +692,15 @@ function SectionView({ section, num, cfg, setCfg }: { section: SectionSchema; nu
           <div className="flex items-center gap-4 flex-wrap">
             {fields.map((f, i) => <FieldControl key={`${f.path}-${i}`} field={f} cfg={cfg} setCfg={setCfg} />)}
           </div>
-          <p className="text-xs text-muted-foreground flex items-start gap-1.5">
-            <Info size={12} className="mt-0.5 shrink-0" /> Beyond the cap, no additional reward is offered no matter how far the limit is exceeded.
-          </p>
+          {capInvalid ? (
+            <p className="text-xs text-destructive flex items-start gap-1.5">
+              <AlertTriangle size={12} className="mt-0.5 shrink-0" /> The cap must be greater than the last slab ({topSlab}{section.suffix ? ` ${section.suffix}` : ""}). Increase the cap to continue.
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground flex items-start gap-1.5">
+              <Info size={12} className="mt-0.5 shrink-0" /> Beyond the cap, no additional reward is offered no matter how far the limit is exceeded.
+            </p>
+          )}
         </section>
       );
     }

@@ -2,6 +2,17 @@ import { describe, it, expect } from "vitest";
 import { emptyBuilder, type BuilderState } from "@/components/wizard/builderState";
 import { DEFAULT_NSV, DEFAULT_NSV_KEY_NOTES } from "@/components/kpi-library/nsvTypes";
 import { buildRulePayloads } from "@/lib/rulePayload";
+import { buildCatalog } from "@/components/kpi-library/schema/kpiCatalog";
+import { DUMMY_KPI_METAS } from "@/components/kpi-library/schema/dummyKpiConfig";
+
+const ecoBaseConfig = () =>
+  buildCatalog(DUMMY_KPI_METAS).entries.eco.defaultConfig() as Record<string, unknown>;
+
+const ECO_SLABS = [
+  { count: 150, ratePerOutlet: 2 },
+  { count: 200, ratePerOutlet: 3 },
+  { count: 250, ratePerOutlet: 4 },
+];
 
 function sampleState(): BuilderState {
   return {
@@ -64,14 +75,20 @@ describe("buildRulePayloads", () => {
     expect(rule.kpiConditions).toBeUndefined();
     // DEFAULT_NSV is step-up: startingEarning at the entry slab, ₹/1% rate per tier.
     expect(rule.ruleDefinition.kpiCode).toBe("NSV");
+    expect(rule.ruleDefinition.kpiName).toBe("Net Sales Value");
     expect(rule.ruleDefinition.stepUpBy1Percent).toBe(true);
     expect(rule.ruleDefinition.startingEarning).toBe(2400);
     expect(rule.ruleDefinition.keyRules).toEqual(DEFAULT_NSV_KEY_NOTES);
+    // Tiers project onto [min, max) ranges. Step-up: each band carries the rate
+    // leading up to it (95→100 takes the 100%-row rate). DEFAULT_NSV caps at 110%,
+    // so the tail is bounded to the cap (max: 110) and keeps the last rate (200),
+    // then an explicit open tail at 0 marks "nothing earned past the cap".
     expect(rule.ruleDefinition.tiers).toEqual([
-      { min: 95, payoutValue: 0 },
-      { min: 100, payoutValue: 320 },
-      { min: 105, payoutValue: 200 },
-      { min: 110, payoutValue: 200 },
+      { min: 95, max: 100, payoutType: "FIXED", payoutValue: 320 },
+      { min: 100, max: 105, payoutType: "FIXED", payoutValue: 200 },
+      { min: 105, max: 110, payoutType: "FIXED", payoutValue: 200 },
+      { min: 110, max: 110, payoutType: "FIXED", payoutValue: 200 },
+      { min: 110, max: null, payoutType: "FIXED", payoutValue: 0 },
     ]);
 
     expect(rule.kpiConfig.userFilters.roles).toEqual(["MR", "ASO"]);
@@ -87,6 +104,7 @@ describe("buildRulePayloads", () => {
         config: {
           ...DEFAULT_NSV,
           stepMode: "slab",
+          cap: { enabled: true, pct: 110 },
           slabs: [
             { pct: 95, ratePerPct: 0, entryPayout: 2400 },
             { pct: 100, ratePerPct: 0, entryPayout: 3000 },
@@ -98,10 +116,99 @@ describe("buildRulePayloads", () => {
     const rule = buildRulePayloads(state)[0];
     expect(rule.ruleDefinition.stepUpBy1Percent).toBe(false);
     expect(rule.ruleDefinition.startingEarning).toBeUndefined();
+    // Cap enabled, step-up off → the open tail keeps the last tier's own payout (4000).
     expect(rule.ruleDefinition.tiers).toEqual([
-      { min: 95, payoutType: "FIXED", payoutValue: 2400 },
-      { min: 100, payoutType: "FIXED", payoutValue: 3000 },
-      { min: 105, payoutType: "FIXED", payoutValue: 4000 },
+      { min: 95, max: 100, payoutType: "FIXED", payoutValue: 2400 },
+      { min: 100, max: 105, payoutType: "FIXED", payoutValue: 3000 },
+      { min: 105, max: null, payoutType: "FIXED", payoutValue: 4000 },
+    ]);
+  });
+
+  it("leaves the step-up tail open (max:null) when the cap is disabled", () => {
+    const state = sampleState();
+    state.programKpis = [
+      { templateId: "nsv", instanceId: "k1", config: { ...DEFAULT_NSV, cap: { enabled: false, pct: 110 } } },
+    ];
+    const rule = buildRulePayloads(state)[0];
+    expect(rule.ruleDefinition.stepUpBy1Percent).toBe(true);
+    // No cap → the open tail past the top slab is unbounded (max: null) and keeps
+    // earning at the last band's rate (200).
+    expect(rule.ruleDefinition.tiers).toEqual([
+      { min: 95, max: 100, payoutType: "FIXED", payoutValue: 320 },
+      { min: 100, max: 105, payoutType: "FIXED", payoutValue: 200 },
+      { min: 105, max: 110, payoutType: "FIXED", payoutValue: 200 },
+      { min: 110, max: null, payoutType: "FIXED", payoutValue: 200 },
+    ]);
+  });
+
+  it("bounds the outlet-count tail to the cap (max payable outlets) when capping is on", () => {
+    const state = sampleState();
+    state.programKpis = [
+      {
+        templateId: "eco",
+        instanceId: "k1",
+        config: { ...ecoBaseConfig(), slabs: ECO_SLABS, cap: { enabled: true, outlets: 300 } },
+      },
+    ];
+    const rule = buildRulePayloads(state)[0];
+    // Per-outlet curves are linear → emitted as step-up.
+    expect(rule.ruleDefinition.stepUpBy1Percent).toBe(true);
+    // The minimum bill value threshold rides on ruleDefinition (eco default: ₹250).
+    expect(rule.ruleDefinition.minBillAmount).toBe(250);
+    // Each band carries its own ₹-per-outlet rate; the tail is bounded to 300, then
+    // an explicit open tail at 0 marks "nothing earned past the cap".
+    expect(rule.ruleDefinition.tiers).toEqual([
+      { min: 150, max: 200, payoutType: "FIXED", payoutValue: 2 },
+      { min: 200, max: 250, payoutType: "FIXED", payoutValue: 3 },
+      { min: 250, max: 300, payoutType: "FIXED", payoutValue: 4 },
+      { min: 300, max: null, payoutType: "FIXED", payoutValue: 0 },
+    ]);
+  });
+
+  it("leaves the outlet-count tail open (max:null) when capping is off", () => {
+    const state = sampleState();
+    state.programKpis = [
+      {
+        templateId: "eco",
+        instanceId: "k1",
+        config: { ...ecoBaseConfig(), slabs: ECO_SLABS, cap: { enabled: false, outlets: 300 } },
+      },
+    ];
+    const rule = buildRulePayloads(state)[0];
+    expect(rule.ruleDefinition.tiers).toEqual([
+      { min: 150, max: 200, payoutType: "FIXED", payoutValue: 2 },
+      { min: 200, max: 250, payoutType: "FIXED", payoutValue: 3 },
+      { min: 250, max: null, payoutType: "FIXED", payoutValue: 4 },
+    ]);
+  });
+
+  it("passes the ₹-per-line rate (not the computed top payout) for line-based KPIs", () => {
+    const tlsdBase = buildCatalog(DUMMY_KPI_METAS).entries.tlsd.defaultConfig() as Record<string, unknown>;
+    const state = sampleState();
+    state.programKpis = [
+      {
+        templateId: "tlsd",
+        instanceId: "k1",
+        config: {
+          ...tlsdBase,
+          minLines: 750,
+          maxLines: 2500,
+          ratePerLine: 4,
+          minQtyEnabled: true,
+          minQtyValue: 5,
+        },
+      },
+    ];
+    const rule = buildRulePayloads(state)[0];
+    expect(rule.ruleDefinition.lineBasedEarning).toBe(true);
+    // Per-line curves are linear → emitted as step-up.
+    expect(rule.ruleDefinition.stepUpBy1Percent).toBe(true);
+    // The min qty to qualify a line rides on ruleDefinition when enabled.
+    expect(rule.ruleDefinition.minQtyValue).toBe(5);
+    // First band earns the per-line rate (4), not maxLines × rate; tail past the cap earns 0.
+    expect(rule.ruleDefinition.tiers).toEqual([
+      { min: 750, max: 2500, payoutType: "FIXED", payoutValue: 4 },
+      { min: 2500, max: null, payoutType: "FIXED", payoutValue: 0 },
     ]);
   });
 

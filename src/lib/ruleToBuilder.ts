@@ -208,16 +208,39 @@ export function normalizeRuleTiers(rd: RuleRecord["ruleDefinition"] | undefined)
   if (raw[0].minVal != null || raw[0].payout != null) {
     return raw.map((t) => ({ minVal: t.minVal ?? 0, maxVal: t.maxVal ?? 9999, payout: t.payout ?? 0 }));
   }
-  // New shape → cumulative payout + a synthetic 0-floor tier.
-  const out: RuleTier[] = [{ minVal: 0, maxVal: raw[0].min ?? 0, payout: 0 }];
-  let cum = rd?.stepUpBy1Percent ? rd.startingEarning ?? 0 : 0;
-  raw.forEach((t, i) => {
-    if (rd?.stepUpBy1Percent) {
-      if (i > 0) cum += ((t.min ?? 0) - (raw[i - 1].min ?? 0)) * (t.payoutValue ?? 0);
-    } else {
-      cum = t.payoutValue ?? 0; // FIXED tiers carry the absolute payout directly.
+  // New shape → cumulative payout + a synthetic 0-floor tier. The range format
+  // (explicit `max`) puts a step-up band's rate on its lower boundary; the older
+  // flat shape (no `max`) puts it on the upper boundary. Pick the rate accordingly
+  // so the cumulative payout at each boundary comes out the same either way.
+  // Drop a trailing cap sentinel — an open tier {max: null, payoutValue: 0} that
+  // begins exactly where the previous bounded tier ends. The forward appends it to
+  // mark "nothing earned past the cap"; left in, it would rebuild as a spurious top
+  // slab (eco) or extra % band (step-up).
+  let rows = raw;
+  if (raw.length >= 2) {
+    const last = raw[raw.length - 1];
+    const prev = raw[raw.length - 2];
+    if (last.max == null && (last.payoutValue ?? 0) === 0 && prev.max != null && prev.max === last.min) {
+      rows = raw.slice(0, -1);
     }
-    out.push({ minVal: t.min ?? 0, maxVal: raw[i + 1]?.min ?? 9999, payout: Math.round(cum) });
+  }
+  const isRangeShape = rows.some((t) => t.max !== undefined);
+  // Only true % step-up accumulates a ₹-per-1% rate into a cumulative payout — and it
+  // is the only curve that carries `startingEarning`. Per-outlet (eco) and per-line
+  // (lines) curves also emit stepUpBy1Percent: true but store each band's rate
+  // directly, so they must NOT accumulate; they pass the payoutValue through as-is.
+  const pctStepUp = !!rd?.stepUpBy1Percent && rd?.startingEarning != null;
+  const out: RuleTier[] = [{ minVal: 0, maxVal: rows[0].min ?? 0, payout: 0 }];
+  let cum = pctStepUp ? rd!.startingEarning ?? 0 : 0;
+  rows.forEach((t, i) => {
+    if (pctStepUp) {
+      const rate = isRangeShape ? rows[i - 1]?.payoutValue : t.payoutValue;
+      if (i > 0) cum += ((t.min ?? 0) - (rows[i - 1].min ?? 0)) * (rate ?? 0);
+    } else {
+      cum = t.payoutValue ?? 0; // FIXED / per-unit tiers carry the value directly.
+    }
+    const maxVal = t.max ?? rows[i + 1]?.min ?? 9999;
+    out.push({ minVal: t.min ?? 0, maxVal, payout: Math.round(cum) });
   });
   return out;
 }
@@ -255,6 +278,27 @@ function configFromTiers(
     if (rd?.cutOfDate && "cutoffDay" in base) {
       const day = Number(rd.cutOfDate.split("-")[0]);
       if (Number.isFinite(day) && day > 0) out.cutoffDay = day;
+    }
+    // Min bill value threshold (eco) / min qty to qualify a line (lines) — the rule
+    // only carries the value when the toggle was enabled, so its presence implies on.
+    if (rd?.minBillAmount != null && "minBillAmount" in base) {
+      out.minBillEnabled = true;
+      out.minBillAmount = rd.minBillAmount;
+    }
+    if (rd?.minQtyValue != null && "minQtyValue" in base) {
+      out.minQtyEnabled = true;
+      out.minQtyValue = rd.minQtyValue;
+    }
+    // Cap — restore the toggle + value the rule carries. The cap amount lives under a
+    // KPI-specific key in the config (pct / outlets / value / …); reuse the base's key.
+    if (rd?.cap && base.cap && typeof base.cap === "object") {
+      const baseCap = base.cap as Record<string, unknown>;
+      const valueKey = Object.keys(baseCap).find((k) => k !== "enabled");
+      out.cap = {
+        ...baseCap,
+        enabled: !!rd.cap.enabled,
+        ...(valueKey && rd.cap.value != null ? { [valueKey]: rd.cap.value } : {}),
+      };
     }
     return out;
   };
@@ -295,28 +339,21 @@ function configFromTiers(
       const slabs = slabTiers.map((t) => ({ threshold: t.minVal, payout: t.payout }));
       return withExtras({ ...base, slabs });
     }
-    // Outlet-count slabs (eco) — cumulative per-outlet rate.
+    // Outlet-count slabs (eco) — each band's payout IS the ₹-per-outlet rate the
+    // user typed (the forward stores the rate directly, not a cumulative earning).
     if (first && "count" in first) {
-      let prevCum = 0;
-      let prevCount = 0;
-      const slabs = slabTiers.map((t) => {
-        const dCount = t.minVal - prevCount;
-        const ratePerOutlet = dCount ? Math.round((t.payout - prevCum) / dCount) : 0;
-        prevCum = t.payout;
-        prevCount = t.minVal;
-        return { count: t.minVal, ratePerOutlet };
-      });
+      const slabs = slabTiers.map((t) => ({ count: t.minVal, ratePerOutlet: t.payout }));
       return withExtras({ ...base, slabs });
     }
   }
 
   // Lines (tlsd / dbb) — min..max lines at a per-line rate; the middle tier holds
-  // [minLines, maxLines] → top payout.
+  // [minLines, maxLines] and its payout IS the ₹-per-line rate the user typed (the
+  // forward stores the rate directly, not the computed top payout).
   if ("minLines" in base && "maxLines" in base) {
     const mid = tiers[1];
     if (mid) {
-      const ratePerLine = mid.maxVal ? Math.round(mid.payout / mid.maxVal) : (base.ratePerLine as number);
-      return withExtras({ ...base, minLines: mid.minVal, maxLines: mid.maxVal, ratePerLine });
+      return withExtras({ ...base, minLines: mid.minVal, maxLines: mid.maxVal, ratePerLine: mid.payout });
     }
   }
 

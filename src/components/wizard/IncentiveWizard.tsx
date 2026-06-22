@@ -12,6 +12,7 @@ import { ArrowLeft, ArrowRight, Info } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { saveProgram, newProgramId, quarterForMonth } from "@/lib/programStore";
 import { buildRulePayloads } from "@/lib/rulePayload";
+import { isCapInvalid } from "@/components/kpi-library/capValidation";
 import { submitRules } from "@/lib/ruleApi";
 import { fetchChannelNames, fetchRolePayloadValues, fetchRoleDesignations } from "@/lib/saleshubApi";
 
@@ -198,7 +199,9 @@ export function IncentiveWizard({ onBack, prefill, onPublished }: IncentiveWizar
     !prefilled &&
     ((currentStep === 1 && !isBasicsComplete(state.basics)) ||
       (currentStep === 2 && !isAudienceV2Complete(state.audience)) ||
-      (currentStep === 3 && state.programKpis.length === 0));
+      (currentStep === 3 &&
+        (state.programKpis.length === 0 ||
+          state.programKpis.some((k) => isCapInvalid(k.config)))));
 
   return (
     <div className="flex flex-col h-full">
