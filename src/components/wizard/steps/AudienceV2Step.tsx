@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronDown, Info, X, Database, ChevronRight, Check, Loader2 } from "lucide-react";
+import { ChevronDown, Info, X, Database, ChevronRight, Check, Loader2, Users, FileSpreadsheet } from "lucide-react";
 import { useState, useEffect } from "react";
 import type { AudienceV2State, Channel } from "../builderState";
 import {
@@ -15,6 +15,10 @@ import {
   fetchGeographyTree,
   type GeographyTree,
 } from "@/lib/saleshubApi";
+// NOTE: user lists are read from the local store for now. Once the backend
+// exposes a "user lists by role" endpoint, swap batchesForRole/listBatches for
+// that fetch — the selection shape (batch ids in userListBatchIds) stays the same.
+import { batchesForRole, listBatches, type UserListBatch } from "@/lib/userListsStore";
 
 interface Props {
   value: AudienceV2State;
@@ -327,6 +331,15 @@ export function AudienceV2Step({ value, onChange }: Props) {
   const [geoLoading, setGeoLoading] = useState(true);
   const [geoError, setGeoError] = useState<string | null>(null);
 
+  // User lists are kept in a local store today; re-read whenever they change so
+  // a list uploaded in another tab/page shows up here without a refresh.
+  const [userLists, setUserLists] = useState<UserListBatch[]>(() => listBatches());
+  useEffect(() => {
+    const h = () => setUserLists(listBatches());
+    window.addEventListener("userLists:change", h);
+    return () => window.removeEventListener("userLists:change", h);
+  }, []);
+
   useEffect(() => {
     fetchProgramRoles()
       .then(setRoles)
@@ -347,7 +360,21 @@ export function AudienceV2Step({ value, onChange }: Props) {
 
   const setDivision = (c: Channel) => onChange({ ...value, division: c });
 
-  const setRole = (r: string) => onChange({ ...value, roles: r ? [r] : [] });
+  const setRole = (r: string) => {
+    // A user list belongs to exactly one role, so changing the role drops any
+    // previously-selected lists that no longer match.
+    const validIds = new Set(batchesForRole(r).map((b) => b.id));
+    const keptLists = (value.userListBatchIds ?? []).filter((id) => validIds.has(id));
+    onChange({ ...value, roles: r ? [r] : [], userListBatchIds: keptLists });
+  };
+
+  const toggleUserList = (id: string) => {
+    const current = value.userListBatchIds ?? [];
+    const next = current.includes(id)
+      ? current.filter((x) => x !== id)
+      : [...current, id];
+    onChange({ ...value, userListBatchIds: next });
+  };
 
   const toggleGeo = (g: string) => {
     let next: string[];
@@ -375,6 +402,11 @@ export function AudienceV2Step({ value, onChange }: Props) {
   };
 
   const selectedRole = value.roles[0] ?? "";
+  // Re-derived from `userLists` so it stays in sync with uploads from elsewhere.
+  const roleUserLists = selectedRole
+    ? userLists.filter((b) => b.role === selectedRole)
+    : [];
+  const selectedListIds = value.userListBatchIds ?? [];
 
   const geoSummary =
     value.geographies.length === 0
@@ -462,6 +494,52 @@ export function AudienceV2Step({ value, onChange }: Props) {
           <Database size={11} className="mt-0.5 shrink-0" />
           Roles synced from config. Create one programme per role.
         </p>
+
+        {/* User lists — the lists uploaded for the selected role on the Users
+            List page. Selecting them scopes the programme to those users. */}
+        {selectedRole && (
+          <div className="space-y-2 border-t border-border pt-4">
+            <Label className="text-sm font-medium flex items-center gap-1.5">
+              <Users size={14} /> User lists{" "}
+              <span className="text-muted-foreground font-normal">(optional)</span>
+            </Label>
+            {roleUserLists.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No user lists uploaded for {selectedRole}. Upload them on the Users
+                List page to scope this programme to specific users.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {roleUserLists.map((b) => {
+                  const checked = selectedListIds.includes(b.id);
+                  const active = b.users.filter((u) => u.active).length;
+                  return (
+                    <button
+                      key={b.id}
+                      type="button"
+                      onClick={() => toggleUserList(b.id)}
+                      className={`w-full flex items-center gap-3 rounded-lg border p-3 text-left transition-all ${
+                        checked
+                          ? "border-primary ring-1 ring-primary bg-primary/5"
+                          : "border-border bg-background hover:border-muted-foreground/40 hover:bg-muted/30"
+                      }`}
+                    >
+                      <Checkbox checked={checked} className="pointer-events-none" />
+                      <FileSpreadsheet size={16} className="text-muted-foreground shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">{b.fileName}</div>
+                        <div className="text-[11px] text-muted-foreground mt-0.5">
+                          {b.users.length} user{b.users.length === 1 ? "" : "s"} · {active} active ·
+                          uploaded {new Date(b.uploadedAt).toLocaleDateString()}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </Card>
 
       {/* Geography */}

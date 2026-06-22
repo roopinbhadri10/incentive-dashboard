@@ -24,7 +24,7 @@ import {
   TableRow,
   TableCell,
 } from "@/components/ui/table";
-import { ChevronDown, Download, Upload, Trash2, Users, FileSpreadsheet } from "lucide-react";
+import { ChevronDown, Download, Upload, Trash2, Users, FileSpreadsheet, Database, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { fetchProgramRoles } from "@/lib/saleshubApi";
 import {
@@ -98,6 +98,7 @@ function parseFile(file: File): Promise<UserListUser[]> {
 
 export function UsersListPage() {
   const [roles, setRoles] = useState<string[]>([]);
+  const [rolesLoading, setRolesLoading] = useState(true);
   const [role, setRole] = useState<string>("");
   const [batches, setBatches] = useState<UserListBatch[]>(() => listBatches());
   const fileRef = useRef<HTMLInputElement>(null);
@@ -114,7 +115,8 @@ export function UsersListPage() {
         setRoles(r);
         setRole((cur) => cur || r[0] || "");
       })
-      .catch(() => { /* leave roles empty */ });
+      .catch(() => { /* leave roles empty */ })
+      .finally(() => setRolesLoading(false));
   }, []);
 
   const roleBatches = batchesForRole(role);
@@ -160,35 +162,47 @@ export function UsersListPage() {
 
         {/* Upload card */}
         <Card className="p-5 space-y-4">
-          <div className="flex flex-col md:flex-row md:items-end gap-3">
-            <div className="flex-1 space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Role</label>
-              <Select value={role} onValueChange={setRole}>
-                <SelectTrigger className="h-10">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {roles.map((r) => (
-                    <SelectItem key={r} value={r}>{r}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          <div className="space-y-1.5">
+            <div className="flex flex-col md:flex-row md:items-end gap-3">
+              <div className="flex-1 space-y-1.5">
+                <label className="text-sm font-medium text-foreground">Role</label>
+                <Select value={role} onValueChange={setRole} disabled={rolesLoading}>
+                  <SelectTrigger className="h-10">
+                    {rolesLoading ? (
+                      <span className="flex items-center gap-2 text-muted-foreground">
+                        <Loader2 size={13} className="animate-spin" /> Loading roles…
+                      </span>
+                    ) : (
+                      <SelectValue placeholder="Select a role" />
+                    )}
+                  </SelectTrigger>
+                  <SelectContent>
+                    {roles.map((r) => (
+                      <SelectItem key={r} value={r}>{r}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => downloadTemplate(role)} className="h-10 gap-2">
+                  <Download size={14} /> Download template
+                </Button>
+                <Button onClick={() => fileRef.current?.click()} className="h-10 gap-2">
+                  <Upload size={14} /> Upload list
+                </Button>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  onChange={onUpload}
+                  className="hidden"
+                />
+              </div>
             </div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => downloadTemplate(role)} className="gap-2">
-                <Download size={14} /> Download template
-              </Button>
-              <Button onClick={() => fileRef.current?.click()} className="gap-2">
-                <Upload size={14} /> Upload list
-              </Button>
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".xlsx,.xls,.csv"
-                onChange={onUpload}
-                className="hidden"
-              />
-            </div>
+            <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
+              <Database size={11} className="mt-0.5 shrink-0" />
+              Roles synced from config. Lists stack per role.
+            </p>
           </div>
           {roleBatches.length > 0 && (
             <div className="flex gap-2 pt-1">
