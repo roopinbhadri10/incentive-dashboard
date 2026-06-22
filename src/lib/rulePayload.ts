@@ -575,7 +575,7 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
       applicabilityCriteria,
       ...(hurdle ? { kpiConditions: { hurdle } } : {}),
       ruleDefinition: {
-        kpiCode,
+        kpiCode: kpiType,
         kpiId,
         kpiName,
         stepUpBy1Percent: payout.stepUpBy1Percent,
