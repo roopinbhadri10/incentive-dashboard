@@ -527,6 +527,8 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
     // Human-readable KPI name — the instance's custom name, else the template name.
     const kpiName = kpi.customName?.trim() || meta?.name || kpiCode;
     const payout = buildPayout(kpi.templateId, kpi.config);
+    // maxPayout already folds in the cap-extension diff for cap-aware flows
+    // (step-up %, outlet-count), so the payload, edit view, and reports agree.
     const maxEarning = Math.round(KPI_TEMPLATE_MAP[kpi.templateId]?.maxPayout(kpi.config) ?? 0);
     const keyRules = (kpi.config as SlabLikeConfig).keyNotes ?? [];
     const hurdle = hurdleFor(gates);

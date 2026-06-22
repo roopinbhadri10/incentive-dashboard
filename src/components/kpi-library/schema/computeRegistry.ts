@@ -49,8 +49,19 @@ const slabEarnings: ComputeFn = {
     }));
   },
   maxPayout: (c) => {
-    const e = (slabEarnings.ladder(c));
-    return e.length ? e[e.length - 1].value : 0;
+    const cfg = c as NsvTemplateConfig;
+    const e = slabEarnings.ladder(c);
+    const base = e.length ? e[e.length - 1].value : 0;
+    // Step-up caps keep earning at the top slab's ₹/1% rate from the top slab up
+    // to the cap %, so the max must include that diff band. (Pure-slab mode has no
+    // per-1% rate — the payout is fixed per slab — so the cap adds nothing there.)
+    const stepUp = (cfg.stepMode ?? "stepup") === "stepup";
+    if (stepUp && cfg.cap?.enabled && cfg.slabs?.length) {
+      const top = cfg.slabs[cfg.slabs.length - 1];
+      const span = (cfg.cap.pct ?? top.pct) - top.pct;
+      if (span > 0) return base + Math.round(span * top.ratePerPct);
+    }
+    return base;
   },
   header: (c) => ({ label: "Max earning", value: fmt(slabEarnings.maxPayout(c) ?? 0) }),
   summarize: (c) => {
@@ -87,7 +98,15 @@ const ecoLadder: ComputeFn = {
     const cfg = c as EcoConfig;
     if (cfg.role === "aso_ase") return null;
     const e = ecoEarnings(cfg.slabs);
-    return e.length ? e[e.length - 1].cumulative : 0;
+    const base = e.length ? e[e.length - 1].cumulative : 0;
+    // Cap keeps earning at the top band's ₹/outlet rate from the top slab up to the
+    // cap outlet count, so the max must include that diff band.
+    if (cfg.cap?.enabled && cfg.slabs?.length) {
+      const top = cfg.slabs[cfg.slabs.length - 1];
+      const span = (cfg.cap.outlets ?? top.count) - top.count;
+      if (span > 0) return base + Math.round(span * top.ratePerOutlet);
+    }
+    return base;
   },
   header: (c) => {
     const cfg = c as EcoConfig;

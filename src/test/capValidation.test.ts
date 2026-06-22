@@ -15,14 +15,14 @@ describe("cap validation", () => {
     expect(capValue({})).toEqual({ enabled: false, value: null });
   });
 
-  it("flags a cap that is not strictly above the last slab", () => {
-    // Cap at 250 with a top slab at 250 → invalid (must exceed it).
-    expect(isCapInvalid({ slabs: [{ count: 200 }, { count: 250 }], cap: { enabled: true, outlets: 250 } })).toBe(true);
-    // Cap below the top slab → invalid.
+  it("flags a cap that sits below the last slab", () => {
+    // Cap below the top slab → invalid (it would cap away part of the curve).
     expect(isCapInvalid({ slabs: [{ count: 200 }, { count: 250 }], cap: { enabled: true, outlets: 240 } })).toBe(true);
   });
 
-  it("accepts a cap above the last slab, and never flags a disabled cap", () => {
+  it("accepts a cap at or above the last slab, and never flags a disabled cap", () => {
+    // Cap at the top slab → valid (no earning beyond the curve; the NSV default).
+    expect(isCapInvalid({ slabs: [{ count: 200 }, { count: 250 }], cap: { enabled: true, outlets: 250 } })).toBe(false);
     expect(isCapInvalid({ slabs: [{ count: 200 }, { count: 250 }], cap: { enabled: true, outlets: 300 } })).toBe(false);
     expect(isCapInvalid({ slabs: [{ count: 200 }, { count: 250 }], cap: { enabled: false, outlets: 100 } })).toBe(false);
     // No cap / no slabs → nothing to validate.

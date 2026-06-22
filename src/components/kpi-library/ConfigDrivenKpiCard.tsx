@@ -673,7 +673,7 @@ function SectionView({ section, num, cfg, setCfg }: { section: SectionSchema; nu
     }
     case "cap": {
       const base = section.path ?? "cap";
-      // A cap must sit strictly above the last slab boundary, else it would cap away
+      // A cap must sit at or above the last slab boundary, else it would cap away
       // part of the configured curve. Restrict the input (min) and flag it when invalid.
       const topSlab = lastSlabBoundary(cfg);
       const capInvalid = isCapInvalid(cfg);
@@ -682,7 +682,7 @@ function SectionView({ section, num, cfg, setCfg }: { section: SectionSchema; nu
         {
           kind: "number", path: `${base}.${section.valueKey}`, label: "Cap at",
           suffix: section.suffix, inline: true,
-          ...(topSlab != null ? { min: topSlab + 1 } : {}),
+          ...(topSlab != null ? { min: topSlab } : {}),
           visibleWhen: { path: `${base}.enabled`, truthy: true },
         },
       ];
@@ -694,7 +694,7 @@ function SectionView({ section, num, cfg, setCfg }: { section: SectionSchema; nu
           </div>
           {capInvalid ? (
             <p className="text-xs text-destructive flex items-start gap-1.5">
-              <AlertTriangle size={12} className="mt-0.5 shrink-0" /> The cap must be greater than the last slab ({topSlab}{section.suffix ? ` ${section.suffix}` : ""}). Increase the cap to continue.
+              <AlertTriangle size={12} className="mt-0.5 shrink-0" /> The cap can't be below the last slab ({topSlab}{section.suffix ? ` ${section.suffix}` : ""}). Increase the cap to continue.
             </p>
           ) : (
             <p className="text-xs text-muted-foreground flex items-start gap-1.5">

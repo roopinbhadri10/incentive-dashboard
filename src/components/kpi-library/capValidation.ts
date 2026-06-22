@@ -1,8 +1,10 @@
-// Shared cap validation: a cap, when enabled, must sit strictly ABOVE the last
-// slab boundary — otherwise it would cap away part (or all) of the configured
-// curve. Used both to flag the cap section in the editor and to block the wizard
-// from proceeding past the KPI step. Generic across KPI types: the slab boundary
-// is whichever ascending field the KPI uses (pct / count / threshold).
+// Shared cap validation: a cap, when enabled, must sit AT or ABOVE the last slab
+// boundary. A cap at the top slab is valid — it just means no earning beyond the
+// configured curve (the default NSV ships exactly this). Only a cap BELOW the top
+// slab is invalid, since it would cap away part of the configured curve. Used both
+// to flag the cap section in the editor and to block the wizard from proceeding
+// past the KPI step. Generic across KPI types: the slab boundary is whichever
+// ascending field the KPI uses (pct / count / threshold).
 
 interface CapLikeConfig {
   slabs?: Array<{ pct?: number; count?: number; threshold?: number }>;
@@ -26,11 +28,11 @@ export function capValue(config: unknown): { enabled: boolean; value: number | n
   return { enabled: !!cap.enabled, value: (entry?.[1] as number | undefined) ?? null };
 }
 
-/** True when the cap is enabled but not strictly greater than the last slab boundary. */
+/** True when the cap is enabled but sits strictly below the last slab boundary. */
 export function isCapInvalid(config: unknown): boolean {
   const { enabled, value } = capValue(config);
   if (!enabled || value == null) return false;
   const top = lastSlabBoundary(config);
   if (top == null) return false;
-  return value <= top;
+  return value < top;
 }
