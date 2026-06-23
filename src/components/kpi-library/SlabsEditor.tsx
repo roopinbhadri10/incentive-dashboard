@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Plus, Trash2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -111,10 +111,9 @@ export function SlabsEditor({
               className="grid grid-cols-[1fr_1.2fr_1.2fr_auto] gap-3 px-4 py-2 border-t border-border items-center"
             >
               <div className="flex items-center gap-2">
-                <Input
-                  type="number"
+                <NumberInput
                   value={s.pct}
-                  onChange={(e) => updateSlab(i, { pct: Number(e.target.value) })}
+                  onValueChange={(n) => updateSlab(i, { pct: n })}
                   className={`h-8 w-24 ${isDup ? "border-destructive" : ""}`}
                 />
                 <span className="text-xs text-muted-foreground">%</span>
@@ -126,12 +125,9 @@ export function SlabsEditor({
                 ) : (
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground">₹</span>
-                    <Input
-                      type="number"
+                    <NumberInput
                       value={s.ratePerPct}
-                      onChange={(e) =>
-                        updateSlab(i, { ratePerPct: Number(e.target.value) })
-                      }
+                      onValueChange={(n) => updateSlab(i, { ratePerPct: n })}
                       className="h-8 w-28"
                     />
                     <span className="text-xs text-muted-foreground">/ 1%</span>
@@ -140,12 +136,9 @@ export function SlabsEditor({
               ) : (
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground">₹</span>
-                  <Input
-                    type="number"
+                  <NumberInput
                     value={s.entryPayout ?? 0}
-                    onChange={(e) =>
-                      updateSlab(i, { entryPayout: Number(e.target.value) })
-                    }
+                    onValueChange={(n) => updateSlab(i, { entryPayout: n })}
                     className="h-8 w-28"
                   />
                 </div>
@@ -157,12 +150,9 @@ export function SlabsEditor({
                     <div className="flex items-center gap-2">
                       <span className="text-muted-foreground">Starting earning</span>
                       <span className="text-xs text-muted-foreground">₹</span>
-                      <Input
-                        type="number"
+                      <NumberInput
                         value={s.entryPayout ?? 0}
-                        onChange={(e) =>
-                          updateSlab(i, { entryPayout: Number(e.target.value) })
-                        }
+                        onValueChange={(n) => updateSlab(i, { entryPayout: n })}
                         className="h-8 w-28"
                       />
                     </div>

@@ -10,6 +10,7 @@ import { Plus, Trash2, AlertTriangle, Info, TrendingUp, Lock } from "lucide-reac
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
@@ -91,31 +92,12 @@ function FieldControl({ field, cfg, setCfg }: { field: Field; cfg: Cfg; setCfg: 
       control = (
         <div className="flex items-center gap-1.5">
           {field.prefix && <span className="text-xs text-muted-foreground">{field.prefix}</span>}
-          <Input
-            type="number"
-            value={(raw as number) ?? 0}
+          <NumberInput
+            value={raw as number | null | undefined}
             min={field.min}
             max={field.max}
             step={field.step}
-            onChange={(e) => {
-              // min/max attrs don't block typed input. If a keystroke would push
-              // the value past max, reject it — restore the last valid value
-              // rather than snapping down to max.
-              const n = Number(e.target.value);
-              if (field.max != null && n > field.max) {
-                e.target.value = String((raw as number) ?? 0);
-                return;
-              }
-              set(n);
-            }}
-            onBlur={(e) => {
-              // Lower bound on blur (kept off the keystroke path so the field can
-              // be cleared/retyped mid-edit), with max as a final safety net.
-              let n = Number(e.target.value);
-              if (field.min != null && n < field.min) n = field.min;
-              if (field.max != null && n > field.max) n = field.max;
-              if (n !== Number(e.target.value)) set(n);
-            }}
+            onValueChange={set}
             className="h-8 w-28"
           />
           {field.suffix && <span className="text-xs text-muted-foreground">{field.suffix}</span>}
@@ -248,15 +230,15 @@ function SimpleSlabsTable({ section, cfg, setCfg }: { section: SlabsSection; cfg
             <div key={i} className="grid grid-cols-[1fr_1fr_1.2fr_auto] gap-3 px-4 py-2 border-t border-border items-center">
               <div className="flex items-center gap-2">
                 {prefix && <span className="text-xs text-muted-foreground">{prefix}</span>}
-                <Input type="number" value={s.threshold}
-                  onChange={(e) => setSlabs(slabs.map((x, j) => (j === i ? { ...x, threshold: Number(e.target.value) } : x)))}
+                <NumberInput value={s.threshold}
+                  onValueChange={(n) => setSlabs(slabs.map((x, j) => (j === i ? { ...x, threshold: n } : x)))}
                   className={`h-8 w-24 ${dupes.includes(s.threshold) ? "border-destructive" : ""}`} />
                 <span className="text-xs text-muted-foreground">{suffix || section.unitLabel}</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">₹</span>
-                <Input type="number" value={s.payout}
-                  onChange={(e) => setSlabs(slabs.map((x, j) => (j === i ? { ...x, payout: Number(e.target.value) } : x)))}
+                <NumberInput value={s.payout}
+                  onValueChange={(n) => setSlabs(slabs.map((x, j) => (j === i ? { ...x, payout: n } : x)))}
                   className="h-8 w-28" />
               </div>
               <div className="text-xs text-muted-foreground">{i === 0 ? "Entry slab" : `+${fmt(s.payout - prev)} over previous`}</div>
@@ -329,15 +311,15 @@ function EcoSlabsTable({ section, cfg, setCfg }: { section: SlabsSection; cfg: C
           return (
             <div key={i} className="grid grid-cols-[1fr_1fr_1.2fr_auto] gap-3 px-4 py-2 border-t border-border items-center">
               <div className="flex items-center gap-2">
-                <Input type="number" value={s.count}
-                  onChange={(e) => setSlabs(slabs.map((x, j) => (j === i ? { ...x, count: Number(e.target.value) } : x)))}
+                <NumberInput value={s.count}
+                  onValueChange={(n) => setSlabs(slabs.map((x, j) => (j === i ? { ...x, count: n } : x)))}
                   className={`h-8 w-24 ${dupes.includes(s.count) ? "border-destructive" : ""}`} />
                 <span className="text-xs text-muted-foreground">outlets</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">₹</span>
-                <Input type="number" value={s.ratePerOutlet}
-                  onChange={(e) => setSlabs(slabs.map((x, j) => (j === i ? { ...x, ratePerOutlet: Number(e.target.value) } : x)))}
+                <NumberInput value={s.ratePerOutlet}
+                  onValueChange={(n) => setSlabs(slabs.map((x, j) => (j === i ? { ...x, ratePerOutlet: n } : x)))}
                   className="h-8 w-24" />
                 <span className="text-xs text-muted-foreground">/ outlet</span>
               </div>
@@ -421,8 +403,8 @@ function GatesEditor({ section, cfg, setCfg, indexLabel }: { section: GatesSecti
                 </div>
                 <div className="space-y-1">
                   <Label className="text-[11px] text-muted-foreground">Threshold</Label>
-                  <Input type="number" value={g.thresholdValue}
-                    onChange={(e) => updateGate(g.id, { thresholdValue: Number(e.target.value) })} className="h-8" />
+                  <NumberInput value={g.thresholdValue}
+                    onValueChange={(n) => updateGate(g.id, { thresholdValue: n })} className="h-8" />
                 </div>
                 <div className="space-y-1">
                   <Label className="text-[11px] text-muted-foreground">Unit</Label>
@@ -473,8 +455,8 @@ function GatesEditor({ section, cfg, setCfg, indexLabel }: { section: GatesSecti
                     <div className="space-y-1">
                       <Label className="text-[11px] text-muted-foreground">Limit to</Label>
                       <div className="flex items-center gap-2">
-                        <Input type="number" value={g.consequence.pct}
-                          onChange={(e) => updateGate(g.id, { consequence: { kind: "limit", pct: Number(e.target.value) } })}
+                        <NumberInput value={g.consequence.pct}
+                          onValueChange={(n) => updateGate(g.id, { consequence: { kind: "limit", pct: n } })}
                           className="h-8 w-28" />
                         <span className="text-xs text-muted-foreground">% of full {noun} payout</span>
                       </div>
@@ -561,14 +543,14 @@ function AiRecoEditor({ section, cfg, setCfg }: { section: AiRecoSection; cfg: C
                         return (
                           <div key={i} className="grid grid-cols-[1fr_1fr_1.2fr_auto] gap-3 px-3 py-2 border-t border-border items-center">
                             <div className="flex items-center gap-2">
-                              <Input type="number" value={s.threshold}
-                                onChange={(e) => setSub({ slabs: sub.slabs.map((x, j) => (j === i ? { ...x, threshold: Number(e.target.value) } : x)) })} className="h-8 w-20" />
+                              <NumberInput value={s.threshold}
+                                onValueChange={(n) => setSub({ slabs: sub.slabs.map((x, j) => (j === i ? { ...x, threshold: n } : x)) })} className="h-8 w-20" />
                               <span className="text-xs text-muted-foreground">%</span>
                             </div>
                             <div className="flex items-center gap-2">
                               <span className="text-xs text-muted-foreground">₹</span>
-                              <Input type="number" value={s.payout}
-                                onChange={(e) => setSub({ slabs: sub.slabs.map((x, j) => (j === i ? { ...x, payout: Number(e.target.value) } : x)) })} className="h-8 w-28" />
+                              <NumberInput value={s.payout}
+                                onValueChange={(n) => setSub({ slabs: sub.slabs.map((x, j) => (j === i ? { ...x, payout: n } : x)) })} className="h-8 w-28" />
                             </div>
                             <div className="text-xs text-muted-foreground">{i === 0 ? "Entry slab" : `+${fmt(s.payout - prev)} over previous`}</div>
                             <Button variant="ghost" size="icon" className="h-8 w-8" disabled={sub.slabs.length <= 1}
@@ -583,18 +565,18 @@ function AiRecoEditor({ section, cfg, setCfg }: { section: AiRecoSection; cfg: C
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                       <div className="space-y-1">
                         <Label className="text-[11px] text-muted-foreground">Rate per complied line (₹)</Label>
-                        <Input type="number" value={sub.perLine.ratePerLine}
-                          onChange={(e) => setSub({ perLine: { ...sub.perLine, ratePerLine: Number(e.target.value) } })} className="h-9" />
+                        <NumberInput value={sub.perLine.ratePerLine}
+                          onValueChange={(n) => setSub({ perLine: { ...sub.perLine, ratePerLine: n } })} className="h-9" />
                       </div>
                       <div className="space-y-1">
                         <Label className="text-[11px] text-muted-foreground">Min lines to earn</Label>
-                        <Input type="number" value={sub.perLine.minLines}
-                          onChange={(e) => setSub({ perLine: { ...sub.perLine, minLines: Number(e.target.value) } })} className="h-9" />
+                        <NumberInput value={sub.perLine.minLines}
+                          onValueChange={(n) => setSub({ perLine: { ...sub.perLine, minLines: n } })} className="h-9" />
                       </div>
                       <div className="space-y-1">
                         <Label className="text-[11px] text-muted-foreground">Max lines (cap)</Label>
-                        <Input type="number" value={sub.perLine.maxLines}
-                          onChange={(e) => setSub({ perLine: { ...sub.perLine, maxLines: Number(e.target.value) } })} className="h-9" />
+                        <NumberInput value={sub.perLine.maxLines}
+                          onValueChange={(n) => setSub({ perLine: { ...sub.perLine, maxLines: n } })} className="h-9" />
                       </div>
                     </div>
                     <div className="rounded-lg border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
