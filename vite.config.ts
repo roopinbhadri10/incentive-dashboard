@@ -19,6 +19,14 @@ export default defineConfig({
         secure: true,
         rewrite: (path) => path.replace(/^\/incentive-api/, ""),
       },
+      // Proxies SalesHub master-data so the browser avoids CORS in dev.
+      // `/saleshub-api/outlets/stats` → `https://api.salescodeai.com/outlets/stats`.
+      "/saleshub-api": {
+        target: "https://api.salescodeai.com",
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/saleshub-api/, ""),
+      },
     },
   },
   plugins: [react()],

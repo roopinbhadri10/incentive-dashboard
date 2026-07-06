@@ -29,10 +29,15 @@ export function ProgramsRoute() {
       onOpenProgram={(programme) => {
         // Edit a draft → open the wizard at Review with every step pre-populated.
         const builder = builderFor(programme);
+        // Carry the source rule's id so publishing PATCHes it in place instead of
+        // POSTing a duplicate. Falls back to POST (no id) when it can't be resolved.
+        const sourceRule = getSourceRule(programme);
+        const editRuleId = sourceRule?.id ?? sourceRule?.ruleId;
         const prefill: WizardPrefill = {
           name: programme.name,
           builder: { ...builder, basics: { ...builder.basics, name: programme.name } },
           startAtReview: true,
+          ...(editRuleId ? { editRuleId } : {}),
         };
         navigate("/create/wizard", { state: { prefill } });
       }}

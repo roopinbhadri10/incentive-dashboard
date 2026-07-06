@@ -5,8 +5,11 @@
 //   VITE_SALESHUB_TOKEN     — Bearer token for Authorization header
 //   VITE_SALESHUB_TENANT_ID — value for X-Tenant-Id header
 
+// Defaults to the Vite dev-server proxy path (see vite.config.ts) so the
+// browser stays same-origin and avoids CORS. In production set
+// VITE_SALESHUB_BASE_URL to the real host (e.g. https://api.salescodeai.com).
 const SALESHUB_BASE_URL =
-  import.meta.env.VITE_SALESHUB_BASE_URL ?? "https://api.salescodeai.com";
+  import.meta.env.VITE_SALESHUB_BASE_URL ?? "/saleshub-api";
 
 const SALESHUB_TOKEN =
   import.meta.env.VITE_SALESHUB_TOKEN ??
@@ -193,9 +196,12 @@ export async function fetchLocationTree(parentCode: string): Promise<LocationTre
 //
 // Override the config service base URL via VITE_INCENTIVE_CONFIG_BASE_URL.
 
+// Defaults to the Vite dev-server proxy path (see vite.config.ts) so the
+// browser stays same-origin and avoids CORS. In production set
+// VITE_INCENTIVE_CONFIG_BASE_URL to the real host (e.g.
+// https://incentive-uat.salescode.ai/v1).
 const INCENTIVE_CONFIG_BASE_URL =
-  import.meta.env.VITE_INCENTIVE_CONFIG_BASE_URL ??
-  "https://incentive-uat.salescode.ai/v1";
+  import.meta.env.VITE_INCENTIVE_CONFIG_BASE_URL ?? "/incentive-api/v1";
 
 const CONFIG_ENDPOINT = "/ui-configs";
 

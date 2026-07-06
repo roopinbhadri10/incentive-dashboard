@@ -192,6 +192,9 @@ export interface WizardPrefill {
   name?: string;
   builder?: BuilderState;
   startAtReview?: boolean;
+  /** Set on an edit flow: the id of the rule being edited. Present → publishing
+   *  PUTs that rule in place; absent → publishing POSTs a new rule. */
+  editRuleId?: string;
   [key: string]: unknown;
 }
 

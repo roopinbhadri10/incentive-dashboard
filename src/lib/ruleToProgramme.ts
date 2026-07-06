@@ -81,7 +81,10 @@ export function ruleToProgramme(rule: RuleRecord): Programme {
     period: periodFromIso(rule.effectiveFrom),
     kpis: {},
     gates: {
+      // Current rules carry gates under `gateConditions` (first % gate's threshold);
+      // legacy rules under `kpiConditions` (hurdle / minAchievementPct).
       nsvMinPct:
+        rule.gateConditions?.find((g) => g.evaluationBasis === "PERCENTAGE")?.threshold ??
         rule.kpiConditions?.hurdle?.required_percentage ??
         rule.kpiConditions?.minAchievementPct ??
         0,

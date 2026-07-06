@@ -13,7 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { saveProgram, newProgramId, quarterForMonth } from "@/lib/programStore";
 import { buildRulePayloads } from "@/lib/rulePayload";
 import { isCapInvalid } from "@/components/kpi-library/capValidation";
-import { submitRules } from "@/lib/ruleApi";
+import { submitRules, updateRule } from "@/lib/ruleApi";
 import { fetchChannelNames, fetchRolePayloadValues, fetchRoleDesignations } from "@/lib/saleshubApi";
 
 const TOTAL_STEPS = 5;
@@ -102,10 +102,19 @@ export function IncentiveWizard({ onBack, prefill, onPublished }: IncentiveWizar
     });
     try {
       const payloads = buildRulePayloads(state);
+      const editRuleId = prefill?.editRuleId;
       if (payloads.length > 0) {
-        await submitRules(payloads);
+        if (editRuleId) {
+          // Editing an existing rule → PUT it in place with the first payload.
+          // Any additional KPIs added during the edit have no rule yet, so they're
+          // POSTed as new rules.
+          await updateRule(editRuleId, payloads[0]);
+          if (payloads.length > 1) await submitRules(payloads.slice(1));
+        } else {
+          await submitRules(payloads);
+        }
         toast({
-          title: "🚀 Programme is live!",
+          title: editRuleId ? "✅ Programme updated!" : "🚀 Programme is live!",
           description:
             payloads.length > 1
               ? `Saved to All Programs · ${payloads.length} rules sent to the incentive engine.`

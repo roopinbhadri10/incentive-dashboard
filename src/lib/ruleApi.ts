@@ -38,6 +38,30 @@ export async function submitRules(payloads: RuleApiPayload[]): Promise<unknown[]
 }
 
 /**
+ * Update an existing rule in place — `PUT /v1/rules/{id}` with the same full body a
+ * create POST would send (full replacement, hence PUT rather than PATCH). Used when
+ * editing a programme so the edit overwrites the original rule instead of creating a
+ * duplicate.
+ */
+export async function updateRule(id: string, payload: RuleApiPayload): Promise<unknown> {
+  if (!id) throw new Error("Cannot update a rule without an id.");
+  const res = await fetch(`${RULES_ENDPOINT}/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Tenant-Id": TENANT_ID,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Rule API responded ${res.status}${detail ? `: ${detail}` : ""}`);
+  }
+  return res.json().catch(() => ({}));
+}
+
+/**
  * Archive (delete) a rule by id — `DELETE /v1/rules/{id}`.
  * The engine returns 204/200 with no meaningful body on success.
  */
@@ -71,8 +95,20 @@ export interface RuleRecord {
   effectiveTill?: string;
   creationTime?: string;
   lastUpdateTime?: string;
-  // New shape carries `hurdle`; legacy rules carry `minAchievementPct`.
+  // Legacy gate shape: rules carried a single hurdle under kpiConditions
+  // (`hurdle.required_percentage`, older `minAchievementPct`). Current rules carry
+  // the richer `gateConditions` array instead (see below).
   kpiConditions?: { minAchievementPct?: number; hurdle?: { date?: string; required_percentage?: number } };
+  // Current gate shape — one entry per gate condition. Only the fields the
+  // dashboard reads back are typed; the engine returns more (ids, gateKpiConfig).
+  gateConditions?: Array<{
+    gateKpiCode?: string;
+    threshold?: number;
+    comparator?: string;
+    consequenceType?: string;
+    consequenceConfig?: Record<string, unknown>;
+    evaluationBasis?: string;
+  }>;
   ruleDefinition?: {
     kpiCode?: string;
     payoutType?: string;

@@ -7,7 +7,11 @@ import type {
   AudienceV2State,
   BasicsState,
   BuilderState,
+  GateCondition,
+  GateConsequence,
+  GateOperator,
   GateRule,
+  ProgramKpi,
   ProgrammePeriod,
 } from "@/components/wizard/builderState";
 import { KPI_TEMPLATE_MAP, type KpiTemplateId } from "@/components/kpi-library/registry";
@@ -91,30 +95,101 @@ interface RuleDefinitionPayout {
   lineBased?: boolean;
 }
 
-export interface ProductFilter {
-  categories: string[];
-  brands: string[];
-  skuGroups: string[];
-  skuIds: string[];
-  coreSkusOnly: boolean;
-  excludeVariants: string[];
+/**
+ * A KPI configuration object as the engine now models it — a first-class entity
+ * referenced by the rule (and by each gate condition). snake_case keys mirror the
+ * engine's contract. `calculation_logic` is only emitted for the rule's primary
+ * KPI (carries the period cut-off); gate KPIs omit it. `user_filters` /
+ * `outlet_filters` repeat the rule's applicability so the KPI is independently
+ * scoped.
+ */
+export interface KpiConfigPayload {
+  name: string;
+  description: string;
+  frequency: string;
+  // Approval status of the auto-generated KPI config.
+  status: string;
+  // Engine base KPI name (e.g. "TARGET_VS_ACHIEVEMENT", "ECO").
+  base_kpi_name: string;
+  // KPI classification — "BASE" for the rule's primary KPI; gate KPIs carry their
+  // own type (e.g. "EFFECTIVE_COVERAGE").
+  kpi_type: string;
+  is_enabled: boolean;
+  // Period cut-off (ISO, end of the effective window). Primary KPI only.
+  calculation_logic?: { cutoff_date: string };
+  user_filters: FilterGroup;
+  outlet_filters: FilterGroup;
+}
+
+/**
+ * Gate KPI config — the same entity as KpiConfigPayload, but the gate contract
+ * expects camelCase keys for three fields where the primary kpiConfig uses
+ * snake_case: baseKpiName / kpiType / enabled (vs. base_kpi_name / kpi_type /
+ * is_enabled). Everything else matches KpiConfigPayload.
+ */
+export interface GateKpiConfigPayload {
+  name: string;
+  description: string;
+  frequency: string;
+  status: string;
+  baseKpiName: string;
+  kpiType: string;
+  enabled: boolean;
+  calculation_logic?: { cutoff_date: string };
+  user_filters: FilterGroup;
+  outlet_filters: FilterGroup;
+}
+
+/** Engine comparator for a gate threshold. */
+export type GateComparator = "GT" | "GTE" | "LT" | "LTE" | "EQ" | "BETWEEN";
+
+/** What happens to the payout when a gate is NOT satisfied. */
+export type GateConsequenceType =
+  | "ZERO_PAYOUT"
+  | "ZERO_PAYOUT_KPIS"
+  | "LIMIT_PAYOUT_PCT"
+  | "CUSTOM";
+
+/** How the threshold is interpreted (the gate KPI's unit). */
+export type GateEvaluationBasis = "PERCENTAGE" | "AMOUNT" | "COUNT" | "DAYS";
+
+/**
+ * One gate condition attached to the rule. Each wizard gate condition becomes one
+ * of these, carrying its parent gate's consequence. Server-assigned ids
+ * (id / ruleId / gateKpiConfigId) are omitted on POST — the engine assigns them.
+ */
+export interface GateConditionPayload {
+  // Engine code of the gated KPI (e.g. "ECO").
+  gateKpiCode: string;
+  threshold: number;
+  comparator: GateComparator;
+  consequenceType: GateConsequenceType;
+  // Shape depends on consequenceType (e.g. { limitToPct } for LIMIT_PAYOUT_PCT).
+  consequenceConfig: Record<string, unknown>;
+  evaluationBasis: GateEvaluationBasis;
+  priority: number;
+  isActive: boolean;
+  // Full KPI config the gate evaluates against (gate-contract camelCase keys).
+  gateKpiConfig: GateKpiConfigPayload;
 }
 
 export interface RuleApiPayload {
+  // Tenant the rule belongs to (also sent in the X-Tenant-Id header).
+  tenantId: string;
   lobId: string;
   ruleName: string;
   ruleCode: string;
   ruleType: string;
   calculationFrequency: string;
   kpiCombination: string;
+  // Reference to the created KPI config. Server-assigned — omitted on POST.
+  kpiConfigId?: string;
   effectiveFrom: string;
   effectiveTill: string;
   priority: number;
   status: string;
   isActive: boolean;
   applicabilityCriteria: ApplicabilityCriteria;
-  // Mid-period qualifying hurdle — only present when a % gate is configured.
-  kpiConditions?: { hurdle: { date?: string; required_percentage: number } };
   ruleDefinition: {
     kpiCode: string;
     // KPI instance id from the KPI config (falls back to the template id).
@@ -141,30 +216,19 @@ export interface RuleApiPayload {
     cap?: { enabled: boolean; value: number | null };
     tiers: RuleTier[];
   };
-  kpiConfig: {
-    kpiType: string;
-    name: string;
-    baseKpiName: string;
-    enabled: boolean;
-    userFilters: { roles: string[]; properties: Record<string, string[]> };
-    scopeConfig: { productFilter: ProductFilter };
-    calculationConfig: { aggregationFunction: string; metricField: string };
-    // UI round-trip fields — carry the full wizard KPI config verbatim so edit /
-    // clone can restore the exact values the user entered, for every KPI type.
-    // (ruleDefinition.tiers above is a lossy projection that can't be reversed
-    // faithfully.) The engine ignores these; they survive the POST → GET trip.
-    templateId: string;
-    templateConfig: unknown;
-    customName?: string;
-    scope?: unknown;
-    groupIds?: string[];
-  };
+  // The rule's primary KPI config (first-class entity, snake_case contract).
+  kpiConfig: KpiConfigPayload;
+  // Gate conditions — one per wizard gate condition. Empty when no gates.
+  gateConditions: GateConditionPayload[];
 }
 
 /* ─── Config-derived values that have no direct form field default to these.
    Override the org/LOB via a VITE_LOB_ID env var. ───────────────────────── */
 
 const LOB_ID = import.meta.env.VITE_LOB_ID ?? "85f09623-1d41-47cc-bf51-c0372df37df3";
+
+// Tenant sent in the rule body (mirrors the X-Tenant-Id header in ruleApi.ts).
+const TENANT_ID = import.meta.env.VITE_TENANT_ID ?? "default";
 
 const FREQ_BY_PERIOD: Record<ProgrammePeriod, string> = {
   monthly: "MONTHLY",
@@ -477,30 +541,173 @@ function toRangeTiers(
 }
 
 /**
- * Mid-period qualifying hurdle from a configured % gate, if any. The wizard has
- * no hurdle-date field yet, so only `required_percentage` is emitted; absent when
- * no % gate exists (the rule then carries no kpiConditions).
+ * Build a KPI config entity in the engine's snake_case contract. Used for the
+ * rule's primary KPI and for each gate KPI. `user_filters` / `outlet_filters`
+ * repeat the rule's applicability so the KPI is independently scoped.
  */
-function hurdleFor(gates: GateRule[]): { required_percentage: number } | undefined {
-  for (const gate of gates ?? []) {
-    for (const c of gate.conditions ?? []) {
-      if (typeof c.value === "number" && /pct|%/i.test(c.unit ?? "")) {
-        return { required_percentage: c.value };
-      }
-    }
-  }
-  return undefined;
+function buildKpiConfig(args: {
+  name: string;
+  description: string;
+  frequency: string;
+  baseKpiName: string;
+  kpiType: string;
+  criteria: ApplicabilityCriteria;
+  cutoffDate?: string;
+}): KpiConfigPayload {
+  return {
+    name: args.name,
+    description: args.description,
+    frequency: args.frequency,
+    status: "APPROVED",
+    base_kpi_name: args.baseKpiName,
+    kpi_type: args.kpiType,
+    is_enabled: true,
+    ...(args.cutoffDate ? { calculation_logic: { cutoff_date: args.cutoffDate } } : {}),
+    user_filters: args.criteria.user_filters,
+    outlet_filters: args.criteria.outlet_filters,
+  };
 }
 
-function emptyProductFilter(): ProductFilter {
+/**
+ * Rename a KPI config onto the gate contract's key names: the gate shape uses
+ * camelCase baseKpiName / kpiType / enabled where the primary kpiConfig uses
+ * snake_case base_kpi_name / kpi_type / is_enabled.
+ */
+function toGateKpiConfig(cfg: KpiConfigPayload): GateKpiConfigPayload {
   return {
-    categories: [],
-    brands: [],
-    skuGroups: [],
-    skuIds: [],
-    coreSkusOnly: false,
-    excludeVariants: [],
+    name: cfg.name,
+    description: cfg.description,
+    frequency: cfg.frequency,
+    status: cfg.status,
+    baseKpiName: cfg.base_kpi_name,
+    kpiType: cfg.kpi_type,
+    enabled: cfg.is_enabled,
+    ...(cfg.calculation_logic ? { calculation_logic: cfg.calculation_logic } : {}),
+    user_filters: cfg.user_filters,
+    outlet_filters: cfg.outlet_filters,
   };
+}
+
+// Wizard gate operator → engine comparator. The wizard offers no ≥/≤, so the
+// strict variants map across directly (lt→LT, gt→GT); a "between" gate uses its
+// lower bound with BETWEEN (the upper bound has no field in the gate-condition shape).
+const COMPARATOR_BY_OP: Record<GateOperator, GateComparator> = {
+  lt: "LT",
+  gt: "GT",
+  eq: "EQ",
+  between: "BETWEEN",
+};
+
+/** Gate condition unit → how the engine interprets the threshold. */
+function evaluationBasisFor(unit: string | undefined): GateEvaluationBasis {
+  const u = (unit ?? "").toLowerCase();
+  if (u === "%" || u === "pct") return "PERCENTAGE";
+  if (u === "₹") return "AMOUNT";
+  if (u === "days") return "DAYS";
+  if (u === "count") return "COUNT";
+  return "PERCENTAGE";
+}
+
+/**
+ * Map a wizard gate consequence onto the engine's consequenceType + config:
+ *  • reduce    → LIMIT_PAYOUT_PCT { limitToPct, [scope] }
+ *  • zero-kpis → ZERO_PAYOUT_KPIS { kpiIds }
+ *  • custom    → CUSTOM { text }
+ *  • zero-all  → ZERO_PAYOUT {}
+ */
+function consequenceFor(c: GateConsequence): {
+  consequenceType: GateConsequenceType;
+  consequenceConfig: Record<string, unknown>;
+} {
+  switch (c.kind) {
+    case "reduce":
+      return {
+        consequenceType: "LIMIT_PAYOUT_PCT",
+        consequenceConfig: {
+          limitToPct: c.percent,
+          ...(c.scope && c.scope !== "all" ? { scope: c.scope } : {}),
+        },
+      };
+    case "zero-kpis":
+      return { consequenceType: "ZERO_PAYOUT_KPIS", consequenceConfig: { kpiIds: c.kpiIds } };
+    case "custom":
+      return { consequenceType: "CUSTOM", consequenceConfig: { text: c.text } };
+    case "zero-all":
+    default:
+      return { consequenceType: "ZERO_PAYOUT", consequenceConfig: {} };
+  }
+}
+
+/**
+ * Resolve a gate condition's metric onto an engine KPI code + type. When the gate
+ * targets one of the programme's own KPIs (metricGroup "kpi", metric = its
+ * instance/template id) we read the code/type from the KPI catalog; otherwise the
+ * metric label is used as the code and the metric group becomes the type.
+ */
+function gateKpiIdentity(
+  condition: GateCondition,
+  programKpis: ProgramKpi[],
+): { code: string; kpiType: string } {
+  if (condition.metricGroup === "kpi") {
+    const match = programKpis.find(
+      (k) => k.instanceId === condition.metric || k.templateId === condition.metric,
+    );
+    if (match) {
+      const meta = KPI_TEMPLATE_MAP[match.templateId]?.meta;
+      const code = meta?.baseKpiName ?? meta?.kpiCode ?? match.templateId;
+      return { code, kpiType: KPI_TYPE_BY_TEMPLATE[match.templateId] ?? "BASE" };
+    }
+  }
+  return {
+    code: condition.metric,
+    kpiType: (condition.metricGroup ?? "custom").toUpperCase(),
+  };
+}
+
+/**
+ * Build the rule's gate conditions from the wizard's gate rules. Each gate may
+ * hold several conditions joined by AND/OR plus one consequence; we emit one
+ * gateCondition per condition, all carrying that gate's consequence (the new
+ * gate-condition shape has no joiner field, so a multi-condition gate flattens).
+ */
+function buildGateConditions(
+  gates: GateRule[],
+  ctx: {
+    ruleName: string;
+    ruleCode: string;
+    frequency: string;
+    criteria: ApplicabilityCriteria;
+    programKpis: ProgramKpi[];
+  },
+): GateConditionPayload[] {
+  const out: GateConditionPayload[] = [];
+  for (const gate of gates ?? []) {
+    const { consequenceType, consequenceConfig } = consequenceFor(gate.consequence);
+    for (const c of gate.conditions ?? []) {
+      const { code, kpiType } = gateKpiIdentity(c, ctx.programKpis);
+      out.push({
+        gateKpiCode: code,
+        threshold: c.value,
+        comparator: COMPARATOR_BY_OP[c.operator] ?? "GTE",
+        consequenceType,
+        consequenceConfig,
+        evaluationBasis: evaluationBasisFor(c.unit),
+        priority: out.length,
+        isActive: true,
+        gateKpiConfig: toGateKpiConfig(
+          buildKpiConfig({
+            name: `${ctx.ruleName} – ${code} Gate`,
+            description: `Gate KPI for rule ${ctx.ruleCode}`,
+            frequency: ctx.frequency,
+            baseKpiName: code,
+            kpiType,
+            criteria: ctx.criteria,
+          }),
+        ),
+      });
+    }
+  }
+  return out;
 }
 
 /* ─── Entry point ────────────────────────────────────────────────────────── */
@@ -511,7 +718,6 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
   const { from, till } = periodRange(basics);
   const ruleName = basics.name?.trim() || "Untitled programme";
   const applicabilityCriteria = buildApplicabilityCriteria(audience, channels ?? []);
-  const roles = audience.roles ?? [];
   const calculationFrequency = FREQ_BY_PERIOD[basics.period] ?? "MONTHLY";
   const multi = programKpis.length > 1;
 
@@ -531,7 +737,16 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
     // (step-up %, outlet-count), so the payload, edit view, and reports agree.
     const maxEarning = Math.round(KPI_TEMPLATE_MAP[kpi.templateId]?.maxPayout(kpi.config) ?? 0);
     const keyRules = (kpi.config as SlabLikeConfig).keyNotes ?? [];
-    const hurdle = hurdleFor(gates);
+    const ruleCode = `RULE-${from}${multi ? `-${i + 1}` : ""}`;
+    // Period cut-off for the KPI config — end of the effective window.
+    const cutoffDate = `${till}T23:59:59Z`;
+    const gateConditions = buildGateConditions(gates, {
+      ruleName,
+      ruleCode,
+      frequency: calculationFrequency,
+      criteria: applicabilityCriteria,
+      programKpis,
+    });
     // Phasing cut-off: resolve the day-of-month onto the rule's month/year
     // (from = "YYYY-MM-DD") as DD-MM-YYYY, e.g. day 20 in Jun 2026 → "20-06-2026".
     const cutoffDay = (kpi.config as SlabLikeConfig).cutoffDay;
@@ -563,9 +778,10 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
         : {};
 
     return {
+      tenantId: TENANT_ID,
       lobId: LOB_ID,
       ruleName,
-      ruleCode: `RULE-${from}${multi ? `-${i + 1}` : ""}`,
+      ruleCode,
       ruleType: "SLAB",
       calculationFrequency,
       kpiCombination: kpiType,
@@ -575,7 +791,6 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
       status: "DRAFT",
       isActive: true,
       applicabilityCriteria,
-      ...(hurdle ? { kpiConditions: { hurdle } } : {}),
       ruleDefinition: {
         kpiCode: kpiType,
         kpiId,
@@ -598,20 +813,16 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
           capMax: payout.capMax,
         }),
       },
-      kpiConfig: {
-        kpiType,
-        name: `${ruleName} – ${kpiType}`,
+      kpiConfig: buildKpiConfig({
+        name: ruleName,
+        description: `Auto-generated from rule ${ruleCode}`,
+        frequency: calculationFrequency,
         baseKpiName,
-        enabled: true,
-        userFilters: { roles, properties: {} },
-        scopeConfig: { productFilter: emptyProductFilter() },
-        calculationConfig: { aggregationFunction: "SUM", metricField: "sales_amount" },
-        templateId: kpi.templateId,
-        templateConfig: kpi.config,
-        ...(kpi.customName ? { customName: kpi.customName } : {}),
-        ...(kpi.scope ? { scope: kpi.scope } : {}),
-        ...(kpi.groupIds ? { groupIds: kpi.groupIds } : {}),
-      },
+        kpiType: "BASE",
+        criteria: applicabilityCriteria,
+        cutoffDate,
+      }),
+      gateConditions,
     };
   });
 }

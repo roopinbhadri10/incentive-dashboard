@@ -71,10 +71,14 @@ describe("buildRulePayloads", () => {
       ],
     });
 
-    // No % gate configured → the rule carries no kpiConditions hurdle.
-    expect(rule.kpiConditions).toBeUndefined();
+    // The rule carries the tenant in its body too (not just the header).
+    expect(rule.tenantId).toBe("default");
+    // No gate configured → the gate-condition list is empty.
+    expect(rule.gateConditions).toEqual([]);
     // DEFAULT_NSV is step-up: startingEarning at the entry slab, ₹/1% rate per tier.
-    expect(rule.ruleDefinition.kpiCode).toBe("NSV");
+    // ruleDefinition.kpiCode carries the engine KPI combination (matches the sample).
+    expect(rule.ruleDefinition.kpiCode).toBe("TARGET_VS_ACHIEVEMENT");
+    expect(rule.ruleDefinition.kpiId).toBe("nsv");
     expect(rule.ruleDefinition.kpiName).toBe("Net Sales Value");
     expect(rule.ruleDefinition.stepUpBy1Percent).toBe(true);
     expect(rule.ruleDefinition.startingEarning).toBe(2400);
@@ -91,8 +95,15 @@ describe("buildRulePayloads", () => {
       { min: 110, max: null, payoutType: "FIXED", payoutValue: 0 },
     ]);
 
-    expect(rule.kpiConfig.userFilters.roles).toEqual(["MR", "ASO"]);
-    expect(rule.kpiConfig.name).toBe("June Sales Target Incentive – TARGET_VS_ACHIEVEMENT");
+    // kpiConfig is the engine's snake_case KPI entity: named after the programme,
+    // typed BASE, carrying the period cut-off and a copy of the applicability.
+    expect(rule.kpiConfig.name).toBe("June Sales Target Incentive");
+    expect(rule.kpiConfig.base_kpi_name).toBe("TARGET_VS_ACHIEVEMENT");
+    expect(rule.kpiConfig.kpi_type).toBe("BASE");
+    expect(rule.kpiConfig.is_enabled).toBe(true);
+    expect(rule.kpiConfig.calculation_logic).toEqual({ cutoff_date: "2026-06-30T23:59:59Z" });
+    expect(rule.kpiConfig.user_filters).toEqual(rule.applicabilityCriteria.user_filters);
+    expect(rule.kpiConfig.outlet_filters).toEqual(rule.applicabilityCriteria.outlet_filters);
   });
 
   it("emits FIXED tiers (no step-up) for pure-slab payouts", () => {
@@ -226,20 +237,37 @@ describe("buildRulePayloads", () => {
     expect(rd.cutOfDate).toBeUndefined();
   });
 
-  it("maps a percentage gate onto kpiConditions.hurdle.required_percentage", () => {
+  it("maps a wizard gate onto a gateCondition with the engine's comparator/consequence", () => {
     const state = sampleState();
+    state.programKpis = [{ templateId: "nsv", instanceId: "k1", config: DEFAULT_NSV }];
     state.gates = [
       {
         id: "g1",
         joiner: "AND",
-        consequence: { kind: "zero-all" },
+        consequence: { kind: "reduce", percent: 50, scope: "all" },
         conditions: [
-          { metricGroup: "kpi", metric: "nsv", operator: "gt", value: 50, unit: "pct" },
+          { metricGroup: "kpi", metric: "nsv", operator: "gt", value: 80, unit: "pct" },
         ],
       },
     ];
     const rule = buildRulePayloads(state)[0];
-    expect(rule.kpiConditions).toEqual({ hurdle: { required_percentage: 50 } });
+    expect(rule.gateConditions).toHaveLength(1);
+    const gc = rule.gateConditions[0];
+    // metricGroup "kpi" + metric "nsv" resolves to the catalog's base KPI name.
+    expect(gc.gateKpiCode).toBe("TARGET_VS_ACHIEVEMENT");
+    expect(gc.threshold).toBe(80);
+    expect(gc.comparator).toBe("GT");
+    expect(gc.evaluationBasis).toBe("PERCENTAGE");
+    // reduce → LIMIT_PAYOUT_PCT { limitToPct } (scope "all" carries no extra field).
+    expect(gc.consequenceType).toBe("LIMIT_PAYOUT_PCT");
+    expect(gc.consequenceConfig).toEqual({ limitToPct: 50 });
+    expect(gc.priority).toBe(0);
+    expect(gc.isActive).toBe(true);
+    // The gate KPI config uses the gate contract's camelCase keys, scoped to the audience.
+    expect(gc.gateKpiConfig.baseKpiName).toBe("TARGET_VS_ACHIEVEMENT");
+    expect(gc.gateKpiConfig.kpiType).toBe("TARGET_VS_ACHIEVEMENT");
+    expect(gc.gateKpiConfig.enabled).toBe(true);
+    expect(gc.gateKpiConfig.user_filters).toEqual(rule.applicabilityCriteria.user_filters);
   });
 
   it("emits one rule per KPI with unique rule codes for multi-KPI programs", () => {
