@@ -2,6 +2,21 @@
   command = "npm run build"
   publish = "dist"
 
+# API proxies — mirror the Vite dev-server proxy so relative /incentive-api and
+# /saleshub-api paths reach the real backends in production (avoids browser CORS).
+# These MUST precede the SPA catch-all: Netlify applies redirects first-match-wins.
+[[redirects]]
+  from = "/incentive-api/*"
+  to = "https://incentive-uat.salescode.ai/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/saleshub-api/*"
+  to = "https://api.salescodeai.com/:splat"
+  status = 200
+  force = true
+
 # SPA fallback: serve index.html for client-side routes.
 # Real files in `dist` (e.g. /assets/*.js) always take precedence over this rule.
 [[redirects]]
