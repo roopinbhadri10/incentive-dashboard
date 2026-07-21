@@ -1,0 +1,9 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/incentive-api/:path*", "destination": "https://incentive-uat.salescode.ai/:path*" },
+    { "source": "/saleshub-api/:path*", "destination": "https://api.salescodeai.com/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
