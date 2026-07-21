@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { emptyBuilder, type BuilderState } from "@/components/wizard/builderState";
 import { DEFAULT_NSV, DEFAULT_NSV_KEY_NOTES } from "@/components/kpi-library/nsvTypes";
 import { buildRulePayloads } from "@/lib/rulePayload";
@@ -38,6 +38,12 @@ function sampleState(): BuilderState {
 }
 
 describe("buildRulePayloads", () => {
+  // The tenant in the payload body now comes from the parent-portal auth
+  // context (localStorage.accountId, populated by syncAuthFromCookies).
+  beforeEach(() => {
+    localStorage.setItem("accountId", "default");
+  });
+
   it("maps a single-KPI program onto one rule in the engine format", () => {
     const rules = buildRulePayloads(sampleState());
     expect(rules).toHaveLength(1);
@@ -72,7 +78,8 @@ describe("buildRulePayloads", () => {
       ],
     });
 
-    // The rule carries the tenant in its body too (not just the header).
+    // The rule carries the tenant (from the auth context) in its body too,
+    // not just the header.
     expect(rule.tenantId).toBe("default");
     // No gate configured → the gate-condition list is empty.
     expect(rule.gateConditions).toEqual([]);

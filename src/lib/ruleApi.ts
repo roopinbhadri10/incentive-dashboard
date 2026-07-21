@@ -2,22 +2,34 @@
 //
 // In dev the default endpoint is a relative path proxied by Vite to
 // https://incentive-uat.salescode.ai (see `server.proxy` in vite.config.ts),
-// which avoids browser CORS errors. Override the endpoint / tenant for other
-// environments with VITE_RULES_ENDPOINT and VITE_TENANT_ID.
+// which avoids browser CORS errors. Override the endpoint with
+// VITE_RULES_ENDPOINT. Tenant + auth come from the parent portal (config/auth).
 
 import type { RuleApiPayload } from "./rulePayload";
+import { getTenantId, getAuthorizationHeader } from "@/config/auth";
 
 const RULES_ENDPOINT = import.meta.env.VITE_RULES_ENDPOINT ?? "/incentive-api/v1/rules";
-const TENANT_ID = import.meta.env.VITE_TENANT_ID ?? "default";
+
+/**
+ * Headers for rules-engine calls. Tenant + auth come from the parent portal
+ * (see config/auth). Read per call, never cached at module load, since the
+ * cookie may arrive after this module is imported.
+ */
+function ruleHeaders(withBody: boolean): HeadersInit {
+  const headers: Record<string, string> = {
+    "X-Tenant-Id": getTenantId(),
+  };
+  if (withBody) headers["Content-Type"] = "application/json";
+  const auth = getAuthorizationHeader();
+  if (auth) headers["Authorization"] = auth;
+  return headers;
+}
 
 export async function submitRule(payload: RuleApiPayload): Promise<unknown> {
-  // const RULES_ENDPOINT=import.meta.env.VITE_RULES_ENDPOINT ?? "/incentive-api/v1/ruless";
   const res = await fetch(RULES_ENDPOINT, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Tenant-Id": TENANT_ID,
-    },
+    headers: ruleHeaders(true),
+    credentials: "include",
     body: JSON.stringify(payload),
   });
 
@@ -47,10 +59,8 @@ export async function updateRule(id: string, payload: RuleApiPayload): Promise<u
   if (!id) throw new Error("Cannot update a rule without an id.");
   const res = await fetch(`${RULES_ENDPOINT}/${encodeURIComponent(id)}`, {
     method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Tenant-Id": TENANT_ID,
-    },
+    headers: ruleHeaders(true),
+    credentials: "include",
     body: JSON.stringify(payload),
   });
 
@@ -69,9 +79,8 @@ export async function archiveRule(id: string): Promise<void> {
   if (!id) throw new Error("Cannot archive a rule without an id.");
   const res = await fetch(`${RULES_ENDPOINT}/${encodeURIComponent(id)}`, {
     method: "DELETE",
-    headers: {
-      "X-Tenant-Id": TENANT_ID,
-    },
+    headers: ruleHeaders(false),
+    credentials: "include",
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
@@ -143,10 +152,8 @@ export interface RuleRecord {
 /** Fetch all rules. Tolerates a bare array or a `{ data | content | rules }` envelope. */
 export async function fetchRules(): Promise<RuleRecord[]> {
   const res = await fetch(RULES_ENDPOINT, {
-    headers: {
-      "Content-Type": "application/json",
-      "X-Tenant-Id": TENANT_ID,
-    },
+    headers: ruleHeaders(true),
+    credentials: "include",
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");

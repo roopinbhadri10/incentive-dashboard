@@ -1,9 +1,10 @@
 // SalesHub API client — fetches master data from api.salescodeai.com.
 //
-// Override via env vars:
-//   VITE_SALESHUB_BASE_URL  — defaults to https://api.salescodeai.com
-//   VITE_SALESHUB_TOKEN     — Bearer token for Authorization header
-//   VITE_SALESHUB_TENANT_ID — value for X-Tenant-Id header
+// Tenant + auth token come from the parent portal's shared cookies (see
+// config/auth). Only the base URL is env-configurable.
+//   VITE_SALESHUB_BASE_URL — defaults to the Vite dev proxy path
+
+import { getTenantId, getAuthorizationHeader } from "@/config/auth";
 
 // Defaults to the Vite dev-server proxy path (see vite.config.ts) so the
 // browser stays same-origin and avoids CORS. In production set
@@ -11,20 +12,16 @@
 const SALESHUB_BASE_URL =
   import.meta.env.VITE_SALESHUB_BASE_URL ?? "/saleshub-api";
 
-const SALESHUB_TOKEN =
-  import.meta.env.VITE_SALESHUB_TOKEN ??
- "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzYWxlc2RiLWF1dGgiLCJpYXQiOjE3ODIxOTExMDUsImV4cCI6MTc4MjIyNzEwNSwidGVuYW50X2lkIjoiRW1hbWkiLCJ1c2VyX2lkIjozMjk3NzcwLCJ1c2VybmFtZSI6IkVtYW1pIiwib3JnX3R5cGUiOm51bGwsIm9yZ19jb2RlIjpudWxsLCJkZWZhdWx0X2NyZWRzIjp0cnVlLCJyb2xlcyI6WyJURU5BTlRfQURNSU4iXSwianRpIjoiNTJjM2M1ZTQtNTQyZC00N2UxLTk3NmYtMTZmMWQ4MGIxYzYzIn0.JQi7Av8rOsPzHI7ljKRMejQvKOtEJtON41TdvyykUJ8"
-const SALESHUB_TENANT_ID =
-  import.meta.env.VITE_SALESHUB_TENANT_ID ?? 
-  // "zydus"
-  "Emami";
-
+// Auth is read per call (never cached at module load): the parent-portal
+// cookie may only arrive after this module is first imported.
 function saleshubHeaders(): HeadersInit {
-  return {
+  const headers: Record<string, string> = {
     accept: "application/json, text/plain, */*",
-    authorization: `Bearer ${SALESHUB_TOKEN}`,
-    "x-tenant-id": SALESHUB_TENANT_ID,
+    "x-tenant-id": getTenantId(),
   };
+  const auth = getAuthorizationHeader();
+  if (auth) headers["authorization"] = auth;
+  return headers;
 }
 
 export interface OutletChannelStat {
@@ -43,6 +40,7 @@ export interface OutletStats {
 export async function fetchOutletStats(): Promise<OutletStats> {
   const res = await fetch(`${SALESHUB_BASE_URL}/outlets/stats`, {
     headers: saleshubHeaders(),
+    credentials: "include",
   });
 
   if (!res.ok) {
@@ -88,6 +86,7 @@ export interface SaleshubRole {
 export async function fetchRoles(): Promise<SaleshubRole[]> {
   const res = await fetch(`${SALESHUB_BASE_URL}/org-types`, {
     headers: saleshubHeaders(),
+    credentials: "include",
   });
 
   if (!res.ok) {
@@ -147,6 +146,7 @@ export async function fetchLocations(
 
   const res = await fetch(`${SALESHUB_BASE_URL}/org/locations?${qs}`, {
     headers: saleshubHeaders(),
+    credentials: "include",
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
@@ -173,7 +173,7 @@ export interface LocationTreeNode {
 export async function fetchLocationTree(parentCode: string): Promise<LocationTreeNode[]> {
   const res = await fetch(
     `${SALESHUB_BASE_URL}/org/locations/tree?parent=${encodeURIComponent(parentCode)}`,
-    { headers: saleshubHeaders() }
+    { headers: saleshubHeaders(), credentials: "include" }
   );
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
@@ -297,9 +297,15 @@ export async function fetchConfigFeature<TValue = unknown>(
   const load = (async (): Promise<ConfigFeature | null> => {
     const qs = new URLSearchParams({ domainName, domainType });
     try {
+      const configHeaders: Record<string, string> = {
+        accept: "application/json",
+        "X-Tenant-Id": getTenantId(),
+      };
+      const auth = getAuthorizationHeader();
+      if (auth) configHeaders["Authorization"] = auth;
       const res = await fetch(
         `${INCENTIVE_CONFIG_BASE_URL}${CONFIG_ENDPOINT}?${qs}`,
-        { headers: { accept: "application/json" } }
+        { headers: configHeaders, credentials: "include" }
       );
       if (!res.ok) throw new Error(`config responded ${res.status}`);
       return (await res.json()) as ConfigFeature;

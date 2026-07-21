@@ -16,6 +16,7 @@ import type {
 } from "@/components/wizard/builderState";
 import { KPI_TEMPLATE_MAP, type KpiTemplateId } from "@/components/kpi-library/registry";
 import { getRolePayloadValue, getRoleDesignation } from "@/lib/saleshubApi";
+import { getTenantId } from "@/config/auth";
 import {
   computeSlabEarnings,
   type NsvSlab,
@@ -228,9 +229,6 @@ export interface RuleApiPayload {
 }
 
 /* ─── Config-derived values that have no direct form field default to these. ── */
-
-// Tenant sent in the rule body (mirrors the X-Tenant-Id header in ruleApi.ts).
-const TENANT_ID = import.meta.env.VITE_TENANT_ID ?? "default";
 
 const FREQ_BY_PERIOD: Record<ProgrammePeriod, string> = {
   monthly: "MONTHLY",
@@ -871,7 +869,7 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
         : {};
 
     return {
-      tenantId: TENANT_ID,
+      tenantId: getTenantId(),
       ruleName,
       ruleCode,
       ruleType: "SLAB",
