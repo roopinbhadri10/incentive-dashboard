@@ -217,8 +217,14 @@ export interface ConfigFeature<TValue = unknown> {
   domainValue: TValue;
 }
 
-/** Metric groups for gate rules, keyed by group name → list of metric labels. */
-export type MetricGroups = Record<string, string[]>;
+/** One selectable gate metric — a display name plus its engine gate code. */
+export interface GateMetricOption {
+  name: string;
+  gateCode: string;
+}
+
+/** Metric groups for gate rules, keyed by group name → list of metric options. */
+export type MetricGroups = Record<string, GateMetricOption[]>;
 
 // Domain coordinates for the gate-rule metric groups config.
 export const METRIC_GROUPS_DOMAIN_NAME = "incentiveconfig";
@@ -310,16 +316,32 @@ export async function fetchConfigFeature<TValue = unknown>(
 }
 
 /**
- * Fetch the gate-rule metric groups from config. Returns the config's
- * domainValue object, or {} if none is configured / the API call fails.
+ * Fetch the gate-rule metric groups from config. Each group maps to a list of
+ * { name, gateCode } options. A bare-string entry (legacy config shape) is
+ * normalized to { name, gateCode } with the label doubling as the code, so both
+ * the old and new config shapes work. Returns {} if none is configured / the API
+ * call fails.
  */
 export async function fetchMetricGroups(): Promise<MetricGroups> {
-  const config = await fetchConfigFeature<MetricGroups>(
+  const config = await fetchConfigFeature<Record<string, unknown>>(
     METRIC_GROUPS_DOMAIN_NAME,
     METRIC_GROUPS_DOMAIN_TYPE
   );
   const values = config?.domainValue;
-  return values && typeof values === "object" ? values : {};
+  if (!values || typeof values !== "object") return {};
+  const out: MetricGroups = {};
+  for (const [group, items] of Object.entries(values)) {
+    if (!Array.isArray(items)) continue;
+    out[group] = items
+      .map((it): GateMetricOption => {
+        if (typeof it === "string") return { name: it, gateCode: it };
+        const o = it as Partial<GateMetricOption>;
+        const name = String(o.name ?? "");
+        return { name, gateCode: String(o.gateCode ?? name) };
+      })
+      .filter((o) => o.name);
+  }
+  return out;
 }
 
 /**

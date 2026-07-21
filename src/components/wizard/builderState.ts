@@ -123,8 +123,10 @@ export interface KpiItem {
 // ─── Gate rules ───────────────────────────────────────────────────────────
 export type GateOperator = "lt" | "gt" | "eq" | "between";
 export interface GateCondition {
-  metricGroup: "kpi" | "attendance" | "collection" | "activity" | "custom";
-  metric: string; // KPI id or metric name
+  // Config-driven group key. "kpi" (a programme KPI) and "custom" (free-text)
+  // are special; everything else is a gate_rule_metric_group_configuration group.
+  metricGroup: string;
+  metric: string; // KPI id (kpi), gate code (metric group), or free text (custom)
   operator: GateOperator;
   value: number;
   value2?: number; // for "between"

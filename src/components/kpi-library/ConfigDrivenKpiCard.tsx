@@ -23,7 +23,7 @@ import { KeyNotesSection } from "./KeyNotesSection";
 import { TargetSourceSelector } from "./TargetSourceSelector";
 import { SlabsEditor } from "./SlabsEditor";
 import { DbbProductSelector, DEFAULT_DBB_PRODUCTS } from "./DbbProductSelector";
-import { GateKpiOptions, useGateKpiOptions } from "./GateKpiOptions";
+import { GateMetricOptions, useMetricGroups, firstMetricValue } from "./GateMetricOptions";
 import {
   uid,
   type GateCondition, type GateThresholdUnit, type NsvSlab, type StepMode,
@@ -348,9 +348,9 @@ function EcoSlabsTable({ section, cfg, setCfg }: { section: SlabsSection; cfg: C
 
 // ── Gate conditions ──────────────────────────────────────────────────────────
 function GatesEditor({ section, cfg, setCfg, indexLabel }: { section: GatesSection; cfg: Cfg; setCfg: SetCfg; indexLabel: string }) {
-  // "Dependent on KPI" options come from the KPI section config (API-driven
-  // catalog), not a hardcoded list.
-  const kpiOptions = useGateKpiOptions();
+  // Gate metric options come from the shared, config-driven picker so this
+  // KPI-level gate offers the exact same list as the program-level gate step.
+  const metricGroups = useMetricGroups();
   const enabled = !!getPath(cfg, section.enabledPath);
   const gates = (getPath(cfg, section.gatesPath) as GateCondition[]) ?? [];
   const noun = section.kpiNoun ?? "this KPI";
@@ -360,12 +360,9 @@ function GatesEditor({ section, cfg, setCfg, indexLabel }: { section: GatesSecti
   const updateGate = (id: string, patch: Partial<GateCondition>) =>
     setGates(gates.map((g) => (g.id === id ? { ...g, ...patch } : g)));
   const addGate = () => {
-    const firstOther = kpiOptions.find((k) => k.id !== section.selfId);
-    if (!firstOther) return;
     setGates([...gates, {
-      id: uid("gate"), dependsOnKpiId: firstOther.id,
-      thresholdValue: firstOther.defaultUnit === "pct" ? 80 : 50,
-      thresholdUnit: firstOther.defaultUnit, consequence: { kind: "zero" },
+      id: uid("gate"), dependsOnKpiId: firstMetricValue(metricGroups),
+      thresholdValue: 80, thresholdUnit: "pct", consequence: { kind: "zero" },
     }]);
   };
 
@@ -393,13 +390,18 @@ function GatesEditor({ section, cfg, setCfg, indexLabel }: { section: GatesSecti
               <div className="grid grid-cols-1 md:grid-cols-[1.5fr_1fr_1fr_auto] gap-3 items-end">
                 <div className="space-y-1">
                   <Label className="text-[11px] text-muted-foreground">Dependent on KPI</Label>
-                  <Select value={g.dependsOnKpiId} onValueChange={(v) => {
-                    const k = kpiOptions.find((x) => x.id === v);
-                    updateGate(g.id, { dependsOnKpiId: v, thresholdUnit: k?.defaultUnit ?? "pct" });
-                  }}>
+                  <Select value={g.dependsOnKpiId} onValueChange={(v) => updateGate(g.id, { dependsOnKpiId: v })}>
                     <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                    <SelectContent className="max-h-72"><GateKpiOptions options={kpiOptions} excludeId={section.selfId} /></SelectContent>
+                    <SelectContent className="max-h-72"><GateMetricOptions metricGroups={metricGroups} /></SelectContent>
                   </Select>
+                  {g.dependsOnKpiId.startsWith("custom::") && (
+                    <Input
+                      value={g.dependsOnKpiId === "custom::Custom metric" ? "" : g.dependsOnKpiId.slice("custom::".length)}
+                      placeholder="Metric name"
+                      onChange={(e) => updateGate(g.id, { dependsOnKpiId: `custom::${e.target.value}` })}
+                      className="h-8 text-xs"
+                    />
+                  )}
                 </div>
                 <div className="space-y-1">
                   <Label className="text-[11px] text-muted-foreground">Threshold</Label>
@@ -422,7 +424,7 @@ function GatesEditor({ section, cfg, setCfg, indexLabel }: { section: GatesSecti
                 </Button>
               </div>
 
-              {section.showCollectionBasis && g.dependsOnKpiId === "collection" && (
+              {section.showCollectionBasis && g.dependsOnKpiId.startsWith("collection::") && (
                 <div className="flex items-center gap-2 pl-1">
                   <Label className="text-[11px] text-muted-foreground">Measured against</Label>
                   <div className="inline-flex rounded-md border bg-background p-0.5">

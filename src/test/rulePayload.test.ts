@@ -53,20 +53,21 @@ describe("buildRulePayloads", () => {
     expect(rule.status).toBe("DRAFT");
 
     // user_filters — who: the role (as its designation; with no role-designation
-    // config loaded in tests, it falls back to the raw role name) and geography.
+    // config loaded in tests, it falls back to the raw role name), the division
+    // (as salesOrg) and geography.
     expect(rule.applicabilityCriteria.user_filters).toEqual({
       operator: "AND",
       rules: [
         { field: "designation", op: "EQUALS", value: "MR" },
+        { field: "salesOrg", op: "EQUALS", value: "CCD" },
         { field: "zone", op: "EQUALS", value: "North" },
       ],
     });
-    // outlet_filters — where: division then trade channels (marketType is omitted
-    // when no role-payload-value config is loaded).
+    // outlet_filters — where: trade channels (marketType is omitted when no
+    // role-payload-value config is loaded).
     expect(rule.applicabilityCriteria.outlet_filters).toEqual({
       operator: "AND",
       rules: [
-        { field: "outletDivision", op: "EQUALS", value: "CCD" },
         { field: "channel", op: "IN", value: ["GT", "MT"] },
       ],
     });
@@ -268,6 +269,65 @@ describe("buildRulePayloads", () => {
     expect(gc.gateKpiConfig.kpiType).toBe("TARGET_VS_ACHIEVEMENT");
     expect(gc.gateKpiConfig.enabled).toBe(true);
     expect(gc.gateKpiConfig.user_filters).toEqual(rule.applicabilityCriteria.user_filters);
+  });
+
+  it("appends a KPI's own gates to that KPI's rule only, after the program-level gates", () => {
+    const state = sampleState();
+    // Program-level gate — applies to every KPI's rule.
+    state.gates = [
+      {
+        id: "g1",
+        joiner: "AND",
+        consequence: { kind: "zero-all" },
+        conditions: [
+          { metricGroup: "attendance", metric: "Absent days", operator: "gt", value: 5, unit: "days" },
+        ],
+      },
+    ];
+    // Two KPIs; only the second carries its own KPI-level gate.
+    state.programKpis = [
+      { templateId: "nsv", instanceId: "k1", config: DEFAULT_NSV },
+      {
+        templateId: "nsv",
+        instanceId: "k2",
+        config: {
+          ...DEFAULT_NSV,
+          gatesEnabled: true,
+          gates: [
+            {
+              id: "kg1",
+              dependsOnKpiId: "attendance::ABSENT_DAYS",
+              thresholdValue: 80,
+              thresholdUnit: "pct",
+              consequence: { kind: "limit", pct: 50 },
+            },
+          ],
+        },
+      },
+    ];
+    const [ruleA, ruleB] = buildRulePayloads(state);
+
+    // KPI A: just the program-level gate.
+    expect(ruleA.gateConditions).toHaveLength(1);
+    expect(ruleA.gateConditions[0].consequenceType).toBe("ZERO_PAYOUT");
+
+    // KPI B: program-level gate first, then its own gate (priority continues).
+    expect(ruleB.gateConditions).toHaveLength(2);
+    expect(ruleB.gateConditions[0].consequenceType).toBe("ZERO_PAYOUT");
+    expect(ruleB.gateConditions[0].priority).toBe(0);
+    const own = ruleB.gateConditions[1];
+    // The gate code (not the display label) becomes the engine gateKpiCode.
+    expect(own.gateKpiCode).toBe("ABSENT_DAYS");
+    expect(own.threshold).toBe(80);
+    // KPI-level gate has no operator — passing means reaching the threshold (GTE).
+    expect(own.comparator).toBe("GTE");
+    expect(own.evaluationBasis).toBe("PERCENTAGE");
+    // limit → LIMIT_PAYOUT_PCT { limitToPct }.
+    expect(own.consequenceType).toBe("LIMIT_PAYOUT_PCT");
+    expect(own.consequenceConfig).toEqual({ limitToPct: 50 });
+    expect(own.priority).toBe(1);
+    expect(own.gateKpiConfig.baseKpiName).toBe("ABSENT_DAYS");
+    expect(own.gateKpiConfig.kpiType).toBe("ATTENDANCE");
   });
 
   it("emits one rule per KPI with unique rule codes for multi-KPI programs", () => {

@@ -22,6 +22,8 @@ const REVIEW_STEP = 5;
 interface IncentiveWizardProps {
   onBack?: () => void;
   prefill?: WizardPrefill | null;
+  // Called only after a successful go-live (rules synced / saved). Not called
+  // when publishing fails.
   onPublished?: () => void;
 }
 
@@ -123,6 +125,8 @@ export function IncentiveWizard({ onBack, prefill, onPublished }: IncentiveWizar
       } else {
         toast({ title: "🚀 Programme is live!", description: "Saved to All Programs." });
       }
+      // Published successfully — hand off (WizardRoute navigates to active campaigns).
+      onPublished?.();
     } catch (err) {
       toast({
         title: "Saved locally — rule sync failed",
@@ -131,7 +135,6 @@ export function IncentiveWizard({ onBack, prefill, onPublished }: IncentiveWizar
       });
     } finally {
       publishingRef.current = false;
-      onPublished?.();
     }
   };
 

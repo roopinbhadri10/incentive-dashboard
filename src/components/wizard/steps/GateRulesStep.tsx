@@ -12,9 +12,10 @@ import type { GateRule, GateCondition, GateConsequence, KpiItem, GateOperator, A
 import { uid } from "../builderState";
 import { AudienceContextChip } from "../AudienceContextChip";
 import {
-  fetchMetricGroups, fetchConsequenceOptions,
+  fetchConsequenceOptions,
   type MetricGroups, type ConsequenceOptions, type ConsequenceOption,
 } from "@/lib/saleshubApi";
+import { GateMetricOptions, useMetricGroups } from "@/components/kpi-library/GateMetricOptions";
 
 interface Props {
   value: GateRule[];
@@ -39,7 +40,7 @@ export function GateRulesStep({ value, onChange, kpis, audience }: Props) {
       {
         id: uid("gate"),
         joiner: "AND",
-        conditions: [{ metricGroup: "attendance", metric: "Absent days", operator: "gt", value: 5, unit: "days" }],
+        conditions: [{ metricGroup: "attendance", metric: "ABSENT_DAYS", operator: "gt", value: 5, unit: "days" }],
         consequence: { kind: "zero-all" },
       },
     ]);
@@ -49,15 +50,11 @@ export function GateRulesStep({ value, onChange, kpis, audience }: Props) {
   };
   const removeGate = (id: string) => onChange(value.filter((g) => g.id !== id));
 
-  // Metric groups for the condition picker come from config (fetched once and
-  // cached in saleshubApi). Falls back to the bundled dummy config until the
-  // real config API is live.
-  const [metricGroups, setMetricGroups] = useState<MetricGroups>({});
+  // Metric groups for the condition picker come from config, shared with the
+  // KPI-level gate picker so both offer the exact same options.
+  const metricGroups = useMetricGroups();
   const [consequenceOptions, setConsequenceOptions] = useState<ConsequenceOptions>([]);
   useEffect(() => {
-    fetchMetricGroups()
-      .then(setMetricGroups)
-      .catch(() => setMetricGroups({}));
     fetchConsequenceOptions()
       .then(setConsequenceOptions)
       .catch(() => setConsequenceOptions([]));
@@ -111,7 +108,7 @@ function GateCard({
   const removeCondition = (i: number) => onUpdate({ conditions: gate.conditions.filter((_, j) => j !== i) });
   const addCondition = () =>
     onUpdate({
-      conditions: [...gate.conditions, { metricGroup: "attendance", metric: "Absent days", operator: "gt", value: 0, unit: "" }],
+      conditions: [...gate.conditions, { metricGroup: "attendance", metric: "ABSENT_DAYS", operator: "gt", value: 0, unit: "" }],
     });
 
   return (
@@ -140,25 +137,15 @@ function GateCard({
                 value={`${c.metricGroup}::${c.metric}`}
                 onValueChange={(v) => {
                   const [group, ...rest] = v.split("::");
-                  updateCondition(i, { metricGroup: group as GateCondition["metricGroup"], metric: rest.join("::") });
+                  updateCondition(i, { metricGroup: group, metric: rest.join("::") });
                 }}
               >
                 <SelectTrigger className="h-8 w-56 text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {kpis.length > 0 && (
-                    <>
-                      <div className="text-[10px] uppercase text-muted-foreground px-2 py-1">From your KPIs</div>
-                      {kpis.map((k) => <SelectItem key={k.id} value={`kpi::${k.id}`}>{k.displayName}</SelectItem>)}
-                    </>
-                  )}
-                  {Object.entries(metricGroups).map(([group, items]) => (
-                    <div key={group}>
-                      <div className="text-[10px] uppercase text-muted-foreground px-2 py-1">{group}</div>
-                      {items.map((m) => <SelectItem key={`${group}-${m}`} value={`${group}::${m}`}>{m}</SelectItem>)}
-                    </div>
-                  ))}
-                  <div className="text-[10px] uppercase text-muted-foreground px-2 py-1">Custom</div>
-                  <SelectItem value="custom::Custom metric">Custom metric…</SelectItem>
+                  <GateMetricOptions
+                    metricGroups={metricGroups}
+                    kpis={kpis.map((k) => ({ id: k.id, label: k.displayName }))}
+                  />
                 </SelectContent>
               </Select>
 
@@ -266,7 +253,7 @@ function GateCard({
         {gate.conditions.map((c, i) => (
           <span key={i}>
             {i > 0 && <span className="text-muted-foreground"> {gate.joiner} </span>}
-            {kpiName(c, kpis)} {opLabel(c.operator)} {c.value}{c.operator === "between" ? `–${c.value2 ?? 0}` : ""} {c.unit}
+            {metricLabel(c, kpis, metricGroups)} {opLabel(c.operator)} {c.value}{c.operator === "between" ? `–${c.value2 ?? 0}` : ""} {c.unit}
           </span>
         ))}
         , {consequenceText(gate.consequence, kpis)}.
@@ -335,9 +322,12 @@ function renderReduceLabel(
   });
 }
 
-function kpiName(c: GateCondition, kpis: KpiItem[]) {
+// Human label for a condition's metric: KPI display name (kpi), the metric's
+// config `name` looked up by its gate code (metric group), or the free text (custom).
+function metricLabel(c: GateCondition, kpis: KpiItem[], metricGroups: MetricGroups) {
   if (c.metricGroup === "kpi") return kpis.find((k) => k.id === c.metric)?.displayName || "(KPI)";
-  return c.metric;
+  if (c.metricGroup === "custom") return c.metric;
+  return metricGroups[c.metricGroup]?.find((m) => m.gateCode === c.metric)?.name ?? c.metric;
 }
 
 function consequenceText(c: GateConsequence, kpis: KpiItem[]) {

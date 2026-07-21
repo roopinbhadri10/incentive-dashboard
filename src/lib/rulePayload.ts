@@ -16,7 +16,13 @@ import type {
 } from "@/components/wizard/builderState";
 import { KPI_TEMPLATE_MAP, type KpiTemplateId } from "@/components/kpi-library/registry";
 import { getRolePayloadValue, getRoleDesignation } from "@/lib/saleshubApi";
-import { computeSlabEarnings, type NsvSlab } from "@/components/kpi-library/nsvTypes";
+import {
+  computeSlabEarnings,
+  type NsvSlab,
+  type GateCondition as KpiGateCondition,
+  type GateConsequence as KpiGateConsequence,
+  type GateThresholdUnit,
+} from "@/components/kpi-library/nsvTypes";
 
 /* ─── Payload shape (mirrors the documented /v1/rules contract) ──────────── */
 
@@ -176,7 +182,6 @@ export interface GateConditionPayload {
 export interface RuleApiPayload {
   // Tenant the rule belongs to (also sent in the X-Tenant-Id header).
   tenantId: string;
-  lobId: string;
   ruleName: string;
   ruleCode: string;
   ruleType: string;
@@ -222,10 +227,7 @@ export interface RuleApiPayload {
   gateConditions: GateConditionPayload[];
 }
 
-/* ─── Config-derived values that have no direct form field default to these.
-   Override the org/LOB via a VITE_LOB_ID env var. ───────────────────────── */
-
-const LOB_ID = import.meta.env.VITE_LOB_ID ?? "85f09623-1d41-47cc-bf51-c0372df37df3";
+/* ─── Config-derived values that have no direct form field default to these. ── */
 
 // Tenant sent in the rule body (mirrors the X-Tenant-Id header in ruleApi.ts).
 const TENANT_ID = import.meta.env.VITE_TENANT_ID ?? "default";
@@ -306,7 +308,8 @@ function buildApplicabilityCriteria(
   audience: AudienceV2State,
   channels: string[]
 ): ApplicabilityCriteria {
-  // user_filters — who: role and geography (zone / state / city).
+  // user_filters — who: role, salesOrg (the division), and geography
+  // (zone / state / city; the bare "geography" catch-all is dropped).
   const userRules: FilterRule[] = [];
   const role = audience.roles?.[0];
   if (role) {
@@ -314,19 +317,22 @@ function buildApplicabilityCriteria(
     const designation = getRoleDesignation(role) || role;
     userRules.push(toFilterRule("designation", [designation]));
   }
+  // Division lives on the user, keyed as salesOrg.
+  if (audience.division) {
+    userRules.push(toFilterRule("salesOrg", [audience.division]));
+  }
   for (const [field, values] of Object.entries(parseGeoTags(audience.geographies))) {
+    if (field === "geography") continue;
     userRules.push(toFilterRule(field, values, "IN"));
   }
   for (const [field, values] of Object.entries(parseGeoTags(audience.geographyExceptions))) {
+    if (field === "geography") continue;
     userRules.push(toFilterRule(field, values, "NOT_IN"));
   }
 
-  // outlet_filters — where: outletDivision, trade channels, and the role-specific
-  // marketType sourced from the role config (role_payload_value_configuration).
+  // outlet_filters — where: trade channels and the role-specific marketType
+  // sourced from the role config (role_payload_value_configuration).
   const outletRules: FilterRule[] = [];
-  if (audience.division) {
-    outletRules.push(toFilterRule("outletDivision", [audience.division]));
-  }
   if (channels?.length) {
     outletRules.push(toFilterRule("channel", channels, "IN"));
   }
@@ -645,12 +651,13 @@ function consequenceFor(c: GateConsequence): {
  * metric label is used as the code and the metric group becomes the type.
  */
 function gateKpiIdentity(
-  condition: GateCondition,
+  metricGroup: string,
+  metric: string,
   programKpis: ProgramKpi[],
 ): { code: string; kpiType: string } {
-  if (condition.metricGroup === "kpi") {
+  if (metricGroup === "kpi") {
     const match = programKpis.find(
-      (k) => k.instanceId === condition.metric || k.templateId === condition.metric,
+      (k) => k.instanceId === metric || k.templateId === metric,
     );
     if (match) {
       const meta = KPI_TEMPLATE_MAP[match.templateId]?.meta;
@@ -659,8 +666,8 @@ function gateKpiIdentity(
     }
   }
   return {
-    code: condition.metric,
-    kpiType: (condition.metricGroup ?? "custom").toUpperCase(),
+    code: metric,
+    kpiType: (metricGroup || "custom").toUpperCase(),
   };
 }
 
@@ -684,7 +691,7 @@ function buildGateConditions(
   for (const gate of gates ?? []) {
     const { consequenceType, consequenceConfig } = consequenceFor(gate.consequence);
     for (const c of gate.conditions ?? []) {
-      const { code, kpiType } = gateKpiIdentity(c, ctx.programKpis);
+      const { code, kpiType } = gateKpiIdentity(c.metricGroup, c.metric, ctx.programKpis);
       out.push({
         gateKpiCode: code,
         threshold: c.value,
@@ -710,6 +717,80 @@ function buildGateConditions(
   return out;
 }
 
+// KPI-level gate threshold unit → engine evaluation basis. The KPI-level gate
+// offers pct / amount / count (no "days" variant).
+const KPI_GATE_BASIS: Record<GateThresholdUnit, GateEvaluationBasis> = {
+  pct: "PERCENTAGE",
+  amount: "AMOUNT",
+  count: "COUNT",
+};
+
+/** Map a KPI-level gate consequence onto the engine's consequenceType + config. */
+function kpiGateConsequence(c: KpiGateConsequence): {
+  consequenceType: GateConsequenceType;
+  consequenceConfig: Record<string, unknown>;
+} {
+  if (c.kind === "limit") {
+    return { consequenceType: "LIMIT_PAYOUT_PCT", consequenceConfig: { limitToPct: c.pct } };
+  }
+  // "zero" — each KPI is emitted as its own rule, so zeroing the rule's payout
+  // zeros exactly this KPI.
+  return { consequenceType: "ZERO_PAYOUT", consequenceConfig: {} };
+}
+
+/**
+ * Build the gate conditions authored on a single KPI (kpi.config.gates, edited in
+ * the KPI form). These apply to that KPI's rule only — unlike the program-level
+ * gates, which every KPI's rule repeats. `startPriority` continues the priority
+ * numbering after the program-level gates already on the rule.
+ *
+ * The dependency is stored as the shared composite value (`kpi::<id>`,
+ * `<group>::<metric>`, `custom::<name>`); a bare legacy value (no "::") is treated
+ * as a KPI id. A KPI-level gate has no operator — passing means the dependent
+ * metric reaches the threshold, so the comparator is always GTE.
+ */
+function buildKpiLevelGateConditions(
+  kpi: ProgramKpi,
+  ctx: {
+    ruleName: string;
+    ruleCode: string;
+    frequency: string;
+    criteria: ApplicabilityCriteria;
+    programKpis: ProgramKpi[];
+    startPriority: number;
+  },
+): GateConditionPayload[] {
+  const cfg = (kpi.config ?? {}) as { gatesEnabled?: boolean; gates?: KpiGateCondition[] };
+  if (!cfg.gatesEnabled || !cfg.gates?.length) return [];
+  return cfg.gates.map((g, i) => {
+    const raw = g.dependsOnKpiId ?? "";
+    const [group, ...rest] = raw.includes("::") ? raw.split("::") : ["kpi", raw];
+    const metric = rest.join("::");
+    const { code, kpiType } = gateKpiIdentity(group, metric, ctx.programKpis);
+    const { consequenceType, consequenceConfig } = kpiGateConsequence(g.consequence);
+    return {
+      gateKpiCode: code,
+      threshold: g.thresholdValue,
+      comparator: "GTE",
+      consequenceType,
+      consequenceConfig,
+      evaluationBasis: KPI_GATE_BASIS[g.thresholdUnit] ?? "PERCENTAGE",
+      priority: ctx.startPriority + i,
+      isActive: true,
+      gateKpiConfig: toGateKpiConfig(
+        buildKpiConfig({
+          name: `${ctx.ruleName} – ${code} Gate`,
+          description: `Gate KPI for rule ${ctx.ruleCode}`,
+          frequency: ctx.frequency,
+          baseKpiName: code,
+          kpiType,
+          criteria: ctx.criteria,
+        }),
+      ),
+    };
+  });
+}
+
 /* ─── Entry point ────────────────────────────────────────────────────────── */
 
 /** Build one POST `/v1/rules` payload per KPI in the program. */
@@ -722,9 +803,9 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
   const multi = programKpis.length > 1;
 
   return programKpis.map((kpi, i) => {
-    const kpiType = KPI_TYPE_BY_TEMPLATE[kpi.templateId] ?? "SALES_TARGET";
     const meta = KPI_TEMPLATE_MAP[kpi.templateId]?.meta;
-    // Engine base KPI name from the KPI config (falls back to the display name).
+    // Engine base KPI name from the KPI section config (falls back to the display
+    // name). Used as both kpiCombination and ruleDefinition.kpiCode.
     const baseKpiName = meta?.baseKpiName ?? meta?.name ?? kpi.templateId;
     // Engine KPI code from the KPI config (falls back to the template id).
     const kpiCode = meta?.kpiCode ?? kpi.templateId;
@@ -740,6 +821,8 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
     const ruleCode = `RULE-${from}${multi ? `-${i + 1}` : ""}`;
     // Period cut-off for the KPI config — end of the effective window.
     const cutoffDate = `${till}T23:59:59Z`;
+    // Program-level gates apply to every KPI's rule; this KPI's own gates apply
+    // to this rule only, appended after them (continuing the priority order).
     const gateConditions = buildGateConditions(gates, {
       ruleName,
       ruleCode,
@@ -747,6 +830,16 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
       criteria: applicabilityCriteria,
       programKpis,
     });
+    gateConditions.push(
+      ...buildKpiLevelGateConditions(kpi, {
+        ruleName,
+        ruleCode,
+        frequency: calculationFrequency,
+        criteria: applicabilityCriteria,
+        programKpis,
+        startPriority: gateConditions.length,
+      }),
+    );
     // Phasing cut-off: resolve the day-of-month onto the rule's month/year
     // (from = "YYYY-MM-DD") as DD-MM-YYYY, e.g. day 20 in Jun 2026 → "20-06-2026".
     const cutoffDay = (kpi.config as SlabLikeConfig).cutoffDay;
@@ -779,12 +872,11 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
 
     return {
       tenantId: TENANT_ID,
-      lobId: LOB_ID,
       ruleName,
       ruleCode,
       ruleType: "SLAB",
       calculationFrequency,
-      kpiCombination: kpiType,
+      kpiCombination: baseKpiName,
       effectiveFrom: from,
       effectiveTill: till,
       priority: 1,
@@ -792,7 +884,7 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
       isActive: true,
       applicabilityCriteria,
       ruleDefinition: {
-        kpiCode: kpiType,
+        kpiCode: baseKpiName,
         kpiId,
         kpiName,
         stepUpBy1Percent: payout.stepUpBy1Percent,

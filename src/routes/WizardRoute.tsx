@@ -16,5 +16,11 @@ export function WizardRoute() {
   const location = useLocation();
   const prefill = (location.state as WizardLocationState | null)?.prefill ?? null;
 
-  return <IncentiveWizard prefill={prefill} onBack={() => navigate("/programs")} />;
+  return (
+    <IncentiveWizard
+      prefill={prefill}
+      onBack={() => navigate("/programs")}
+      onPublished={() => navigate("/campaigns/active")}
+    />
+  );
 }
