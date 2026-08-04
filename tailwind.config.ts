@@ -63,6 +63,13 @@ export default {
           DEFAULT: "hsl(var(--info))",
           foreground: "hsl(var(--info-foreground))",
         },
+        hairline: "hsl(var(--hairline))",
+        surface: {
+          DEFAULT: "hsl(var(--surface-panel))",
+          mint: "hsl(var(--surface-mint))",
+          "mint-deep": "hsl(var(--surface-mint-deep))",
+          panel: "hsl(var(--surface-panel))",
+        },
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",
           foreground: "hsl(var(--sidebar-foreground))",
@@ -72,6 +79,8 @@ export default {
           "accent-foreground": "hsl(var(--sidebar-accent-foreground))",
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
+          active: "hsl(var(--sidebar-active))",
+          "active-foreground": "hsl(var(--sidebar-active-foreground))",
         },
       },
       borderRadius: {

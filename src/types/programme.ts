@@ -122,6 +122,13 @@ export interface Programme {
   segment: WorkingSegment;
   geography: Geography;
   period: { month: number; year: number; isQ1: boolean };
+  /** Groups the rules of one programme; the join key onto
+   *  GET /v1/programs/analytics. Absent on rules created before it existed. */
+  programId?: string;
+  /** Rule window from the engine (ISO `YYYY-MM-DD`). Drives the Active /
+   *  Scheduled / Completed categorisation on the campaigns views. */
+  effectiveFrom?: string;
+  effectiveTill?: string;
   kpis: {
     A_nsv?: KpiConfig;
     B_phasing?: KpiConfig;

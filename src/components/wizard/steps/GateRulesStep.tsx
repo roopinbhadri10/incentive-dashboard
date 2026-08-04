@@ -6,16 +6,43 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, ShieldCheck } from "lucide-react";
+import { Plus, Trash2, ShieldCheck, Info } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useEffect, useState } from "react";
-import type { GateRule, GateCondition, GateConsequence, KpiItem, GateOperator, AudienceV2State } from "../builderState";
+import type { GateRule, GateCondition, GateConsequence, KpiItem, GateOperator, TerritoryFilter, AudienceV2State } from "../builderState";
 import { uid } from "../builderState";
 import { AudienceContextChip } from "../AudienceContextChip";
+import { WizardAddButton } from "../ui/WizardAddButton";
 import {
   fetchConsequenceOptions,
   type MetricGroups, type ConsequenceOptions, type ConsequenceOption,
 } from "@/lib/saleshubApi";
-import { GateMetricOptions, useMetricGroups } from "@/components/kpi-library/GateMetricOptions";
+import { GateMetricOptions, useMetricGroups, NSV_METRIC_VALUE, nsvMetricLabel } from "@/components/kpi-library/GateMetricOptions";
+
+const TERRITORY_LABEL: Record<TerritoryFilter, string> = {
+  all: "All days",
+  urban: "Urban working days only",
+  rural: "Rural working days only",
+};
+
+const TERRITORY_SHORT: Record<TerritoryFilter, string> = {
+  all: "",
+  urban: " on Urban days",
+  rural: " on Rural days",
+};
+
+// Gate codes (metric identifiers) where a territory split (urban/rural working
+// days) is meaningful. Keyed on the config gate code, not the display name.
+const TERRITORY_SPLIT_METRICS = new Set<string>([
+  "CFT_HOURS",
+  "FIELD_ATTENDANCE_DAYS",
+]);
+
+// Default unit suggestion for HHD-sourced field-activity metrics, keyed on gate code.
+const FIELD_ACTIVITY_DEFAULTS: Record<string, string> = {
+  CFT_HOURS: "hours",
+  FIELD_ATTENDANCE_DAYS: "days",
+};
 
 interface Props {
   value: GateRule[];
@@ -33,11 +60,14 @@ const OPERATORS: { id: GateOperator; label: string }[] = [
 
 const opLabel = (o: GateOperator) => OPERATORS.find((x) => x.id === o)?.label || o;
 
+const GATES_EXPLAINER =
+  "Gates are minimum thresholds a rep must hit before earning any payout. E.g. \"Must achieve 70% collection target\".";
+
 export function GateRulesStep({ value, onChange, kpis, audience }: Props) {
-  const addGate = () => {
+  const addGate = (gate?: GateRule) => {
     onChange([
       ...value,
-      {
+      gate ?? {
         id: uid("gate"),
         joiner: "AND",
         conditions: [{ metricGroup: "attendance", metric: "ABSENT_DAYS", operator: "gt", value: 5, unit: "days" }],
@@ -60,40 +90,89 @@ export function GateRulesStep({ value, onChange, kpis, audience }: Props) {
       .catch(() => setConsequenceOptions([]));
   }, []);
 
+  const TEMPLATES: Array<{ title: string; description: string; build: () => GateRule }> = [
+    {
+      title: "Minimum Collection",
+      description: "Rep earns nothing if collection % falls below 70% of billing",
+      build: () => ({
+        id: uid("gate"),
+        joiner: "AND",
+        conditions: [{ metricGroup: "collection", metric: "COLLECTION_PCT", operator: "lt", value: 70, unit: "%" }],
+        consequence: { kind: "zero-all" },
+      }),
+    },
+    {
+      title: "Attendance Gate",
+      description: "Rep earns nothing if absent days exceed 5 in the period",
+      build: () => ({
+        id: uid("gate"),
+        joiner: "AND",
+        conditions: [{ metricGroup: "attendance", metric: "ABSENT_DAYS", operator: "gt", value: 5, unit: "days" }],
+        consequence: { kind: "zero-all" },
+      }),
+    },
+  ];
+
   return (
+    <TooltipProvider>
     <div className="animate-fade-in space-y-4 max-w-4xl">
-      <div>
-        <h2 className="text-xl font-semibold">Gate rules</h2>
+      <div className="space-y-2">
+        <div className="flex items-center gap-1.5">
+          <h2 className="text-xl font-semibold">Gate rules</h2>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button type="button" aria-label="What are gates?" className="text-muted-foreground hover:text-foreground">
+                <Info size={14} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right" className="max-w-xs text-xs">
+              {GATES_EXPLAINER}
+            </TooltipContent>
+          </Tooltip>
+        </div>
         <p className="text-sm text-muted-foreground">What conditions must a rep meet before earning?</p>
         <p className="text-xs text-muted-foreground mt-1">Gates zero out or reduce payouts when conditions aren't met.</p>
         {audience && <AudienceContextChip audience={audience} />}
       </div>
 
       {value.length === 0 && (
-        <Card className="p-10 text-center border-dashed flex flex-col items-center gap-3">
-          <div className="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center">
-            <ShieldCheck size={22} />
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
+              <ShieldCheck size={16} />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">Start with a template</h3>
+              <p className="text-xs text-muted-foreground">Pick a common gate to pre-fill, or build a custom one below.</p>
+            </div>
           </div>
-          <div className="space-y-1">
-            <h3 className="text-sm font-semibold text-foreground">No gates added — optional but powerful</h3>
-            <p className="text-xs text-muted-foreground max-w-md mx-auto">
-              Gates are minimum thresholds a rep must hit before earning any payout. E.g. "Must achieve 70% collection target".
-            </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {TEMPLATES.map((t) => (
+              <Card key={t.title} className="p-4 flex flex-col gap-2 border hover:border-primary/40 hover:shadow-sm transition">
+                <div className="text-sm font-semibold text-foreground">{t.title}</div>
+                <p className="text-xs text-muted-foreground leading-snug flex-1">{t.description}</p>
+                <WizardAddButton
+                  variant="outline"
+                  className="self-start mt-1"
+                  onClick={() => addGate(t.build())}
+                >
+                  Use this
+                </WizardAddButton>
+              </Card>
+            ))}
           </div>
-          <Button onClick={addGate} size="sm" className="gap-1 mt-1">
-            <Plus size={14} /> Add your first gate
-          </Button>
-        </Card>
+        </div>
       )}
 
       {value.map((gate) => (
         <GateCard key={gate.id} gate={gate} kpis={kpis} metricGroups={metricGroups} consequenceOptions={consequenceOptions} onUpdate={(p) => updateGate(gate.id, p)} onRemove={() => removeGate(gate.id)} />
       ))}
 
-      <Button variant="outline" onClick={addGate} className="gap-1">
-        <Plus size={14} /> Add gate rule
-      </Button>
+      <WizardAddButton onClick={() => addGate()}>
+        Add gate rule
+      </WizardAddButton>
     </div>
+    </TooltipProvider>
   );
 }
 
@@ -121,7 +200,10 @@ function GateCard({
       </div>
 
       <div className="space-y-2">
-        {gate.conditions.map((c, i) => (
+        {gate.conditions.map((c, i) => {
+          const isFieldActivity = c.metricGroup === "field_activity";
+          const supportsTerritory = isFieldActivity && TERRITORY_SPLIT_METRICS.has(c.metric);
+          return (
           <div key={i} className="space-y-1">
             {i > 0 && (
               <Select value={gate.joiner} onValueChange={(v) => onUpdate({ joiner: v as "AND" | "OR" })}>
@@ -137,7 +219,17 @@ function GateCard({
                 value={`${c.metricGroup}::${c.metric}`}
                 onValueChange={(v) => {
                   const [group, ...rest] = v.split("::");
-                  updateCondition(i, { metricGroup: group, metric: rest.join("::") });
+                  const metric = rest.join("::");
+                  const patch: Partial<GateCondition> = { metricGroup: group, metric };
+                  // Field-activity (HHD) metrics: seed a sensible unit and set/clear
+                  // the territory filter based on whether the metric supports a split.
+                  if (group === "field_activity") {
+                    patch.unit = FIELD_ACTIVITY_DEFAULTS[metric] ?? c.unit;
+                    patch.territoryFilter = TERRITORY_SPLIT_METRICS.has(metric) ? "all" : undefined;
+                  } else {
+                    patch.territoryFilter = undefined;
+                  }
+                  updateCondition(i, patch);
                 }}
               >
                 <SelectTrigger className="h-8 w-56 text-xs"><SelectValue /></SelectTrigger>
@@ -148,15 +240,6 @@ function GateCard({
                   />
                 </SelectContent>
               </Select>
-
-              {c.metricGroup === "custom" && (
-                <Input
-                  value={c.metric === "Custom metric" ? "" : c.metric}
-                  placeholder="Metric name"
-                  onChange={(e) => updateCondition(i, { metric: e.target.value })}
-                  className="h-8 w-40 text-xs"
-                />
-              )}
 
               <Select value={c.operator} onValueChange={(v) => updateCondition(i, { operator: v as GateOperator })}>
                 <SelectTrigger className="h-8 w-32 text-xs"><SelectValue /></SelectTrigger>
@@ -180,6 +263,7 @@ function GateCard({
                   <SelectItem value="%">%</SelectItem>
                   <SelectItem value="₹">₹</SelectItem>
                   <SelectItem value="days">days</SelectItem>
+                  <SelectItem value="hours">hours</SelectItem>
                   <SelectItem value="count">count</SelectItem>
                 </SelectContent>
               </Select>
@@ -190,9 +274,36 @@ function GateCard({
                 </button>
               )}
             </div>
+
+            {supportsTerritory && (
+              <div className="pl-1 pt-1 flex items-center gap-2 flex-wrap">
+                <Label className="text-[11px] text-muted-foreground">Territory type filter</Label>
+                <Select
+                  value={c.territoryFilter ?? "all"}
+                  onValueChange={(v) => updateCondition(i, { territoryFilter: v as TerritoryFilter })}
+                >
+                  <SelectTrigger className="h-7 w-52 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(TERRITORY_LABEL) as TerritoryFilter[]).map((t) => (
+                      <SelectItem key={t} value={t}>{TERRITORY_LABEL[t]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <span className="text-[11px] text-muted-foreground">Evaluates the metric only on matching working days (useful for Hybrid MRs).</span>
+              </div>
+            )}
+
+            {isFieldActivity && (
+              <div className="pl-1 text-[11px] text-muted-foreground">
+                Source: HHD / BI Portal · Visit Time Outlet-wise report
+              </div>
+            )}
           </div>
-        ))}
-        <button onClick={addCondition} className="text-xs text-primary hover:underline">+ Add condition</button>
+          );
+        })}
+        <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={addCondition}>
+          <Plus size={12} /> Add condition (AND / OR)
+        </Button>
       </div>
 
       <div className="border-t pt-3 space-y-2">
@@ -253,7 +364,7 @@ function GateCard({
         {gate.conditions.map((c, i) => (
           <span key={i}>
             {i > 0 && <span className="text-muted-foreground"> {gate.joiner} </span>}
-            {metricLabel(c, kpis, metricGroups)} {opLabel(c.operator)} {c.value}{c.operator === "between" ? `–${c.value2 ?? 0}` : ""} {c.unit}
+            {metricLabel(c, kpis, metricGroups)}{c.territoryFilter ? TERRITORY_SHORT[c.territoryFilter] : ""} {opLabel(c.operator)} {c.value}{c.operator === "between" ? `–${c.value2 ?? 0}` : ""} {c.unit}
           </span>
         ))}
         , {consequenceText(gate.consequence, kpis)}.
@@ -322,11 +433,13 @@ function renderReduceLabel(
   });
 }
 
-// Human label for a condition's metric: KPI display name (kpi), the metric's
-// config `name` looked up by its gate code (metric group), or the free text (custom).
+// Human label for a condition's metric: KPI display name (kpi), or the metric's
+// config `name` looked up by its gate code (metric group).
 function metricLabel(c: GateCondition, kpis: KpiItem[], metricGroups: MetricGroups) {
   if (c.metricGroup === "kpi") return kpis.find((k) => k.id === c.metric)?.displayName || "(KPI)";
-  if (c.metricGroup === "custom") return c.metric;
+  // NSV is no longer selectable, but gates saved before its removal still carry
+  // it — label those properly rather than showing the raw "NSV" code.
+  if (`${c.metricGroup}::${c.metric}` === NSV_METRIC_VALUE) return nsvMetricLabel();
   return metricGroups[c.metricGroup]?.find((m) => m.gateCode === c.metric)?.name ?? c.metric;
 }
 

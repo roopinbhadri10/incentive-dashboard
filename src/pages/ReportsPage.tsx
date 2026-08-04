@@ -287,17 +287,15 @@ export function ReportsPage() {
   ];
 
   return (
-    <div className="flex-1 overflow-y-auto bg-background">
+    <div className="flex-1 overflow-y-auto">
       <div className="bg-card rounded-xl mx-4 mt-4 mb-4 p-6 space-y-6">
         <div className="flex items-center gap-3">
           <div className="w-1 h-[26px] bg-primary rounded-full" />
-          <div>
-            <h1 className="text-[22px] font-semibold text-foreground leading-tight">Reports & Dumps</h1>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Download incentive program data — user-level targets and achievement reports.
-            </p>
-          </div>
+          <p className="text-xs text-muted-foreground">
+            Download incentive program data — user-level targets and achievement reports.
+          </p>
         </div>
+
 
         {programs.length === 0 && (
           <Card className="p-4 border-dashed bg-muted/30">

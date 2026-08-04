@@ -23,6 +23,7 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { ProgramKpi, KpiGroup, AudienceV2State } from "../builderState";
+import { ROLE_AWARE_KPIS } from "../builderState";
 import { AudienceContextChip } from "../AudienceContextChip";
 import {
   KPI_TEMPLATE_MAP, kpiDisplayName, type KpiTemplateId,
@@ -46,13 +47,6 @@ const uid = (p = "id") => `${p}_${Math.random().toString(36).slice(2, 10)}`;
 const fmt = (n: number) => `₹${n.toLocaleString("en-IN")}`;
 
 // ─── Earning Basis selector ────────────────────────────────────────────────
-const ROLE_AWARE: Record<string, { own: string; juniors: string } | undefined> = {
-  eco: { own: "mr", juniors: "aso_ase" },
-  tlsd: { own: "mr", juniors: "aso_ase" },
-  dbb: { own: "mr", juniors: "aso_ase" },
-  qnsv: { own: "MR", juniors: "ASO" },
-};
-
 function EarningBasisSelector({
   templateId, config, lockedRole, onChange,
 }: {
@@ -61,7 +55,7 @@ function EarningBasisSelector({
   lockedRole?: "mr" | "aso";
   onChange: (cfg: unknown) => void;
 }) {
-  const map = ROLE_AWARE[templateId];
+  const map = ROLE_AWARE_KPIS[templateId];
   if (!map) return null;
   const isLeaf = lockedRole === "mr";
   const cfg = (config ?? {}) as { role?: string; rateMultiplier?: number };
@@ -719,7 +713,7 @@ export function ProgramKpiStep({
     // selector; we no longer pre-select juniors just because the audience is ASO.
     const stamped = newKpis.map((k) => {
       const cfg = k.config as { role?: string };
-      const map = ROLE_AWARE[k.templateId];
+      const map = ROLE_AWARE_KPIS[k.templateId];
       if (map) cfg.role = map.own;
       return { ...k, config: cfg };
     });
@@ -799,8 +793,9 @@ export function ProgramKpiStep({
         {audience && <AudienceContextChip audience={audience} />}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-4">
-        <Card className="p-3 h-fit">
+      <div className="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-4 items-start">
+        <Card className="p-0 h-fit lg:sticky lg:top-4 flex flex-col max-h-[calc(100vh-8rem)] overflow-hidden">
+         <div className="p-3 flex-1 overflow-y-auto">
           <div className="flex items-center justify-between mb-2 gap-2">
             <span className="text-sm font-medium">Your KPIs</span>
             <div className="flex items-center gap-1">
@@ -967,10 +962,11 @@ export function ProgramKpiStep({
               )}
             </div>
           )}
+         </div>
 
-          <div className="border-t mt-3 pt-2 text-xs flex items-center justify-between">
-            <span className="text-muted-foreground">Total max payout</span>
-            <span className="font-semibold">{fmt(totalMax)}</span>
+          <div className="shrink-0 border-t border-border bg-card/95 backdrop-blur px-3 py-2.5 text-xs flex items-center justify-between">
+            <span className="text-muted-foreground font-medium">Total max payout</span>
+            <span className="font-semibold text-sm">{fmt(totalMax)}</span>
           </div>
         </Card>
 
@@ -1062,7 +1058,7 @@ export function ProgramKpiStep({
               />
             </>
           ) : (
-            <div className="flex min-h-[460px] flex-col items-center justify-center rounded-xl border-2 border-dashed border-border p-12 text-center">
+            <div className="flex min-h-[460px] flex-col items-center justify-center rounded-xl border border-border/60 bg-white p-12 text-center shadow-sm">
               <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary/10">
                 <Sparkles size={32} className="text-primary" />
               </div>

@@ -122,15 +122,20 @@ export interface KpiItem {
 
 // ─── Gate rules ───────────────────────────────────────────────────────────
 export type GateOperator = "lt" | "gt" | "eq" | "between";
+/** Territory scope for field-activity (HHD) metrics that vary by urban/rural days. */
+export type TerritoryFilter = "all" | "urban" | "rural";
 export interface GateCondition {
-  // Config-driven group key. "kpi" (a programme KPI) and "custom" (free-text)
-  // are special; everything else is a gate_rule_metric_group_configuration group.
+  // Config-driven group key. "kpi" (a programme KPI) is special; "nsv" is the
+  // always-available NSV metric; everything else is a
+  // gate_rule_metric_group_configuration group.
   metricGroup: string;
-  metric: string; // KPI id (kpi), gate code (metric group), or free text (custom)
+  metric: string; // KPI id (kpi), or gate code (metric group / nsv)
   operator: GateOperator;
   value: number;
   value2?: number; // for "between"
   unit: string;
+  /** Only for field-activity (HHD) metrics that support urban/rural split. */
+  territoryFilter?: TerritoryFilter;
 }
 export type GateConsequence =
   | { kind: "zero-all" }
@@ -190,17 +195,60 @@ export interface BuilderState {
  * template's prefilled config.
  */
 export interface WizardPrefill {
-  type?: "clone" | "template" | "clone-saved";
+  type?: "clone" | "template" | "clone-saved" | "draft";
   name?: string;
   builder?: BuilderState;
   startAtReview?: boolean;
   /** Set on an edit flow: the id of the rule being edited. Present → publishing
    *  PUTs that rule in place; absent → publishing POSTs a new rule. */
   editRuleId?: string;
+  /** Resumed draft: its store id, so autosave keeps updating the same entry. */
+  draftId?: string;
+  /** Resumed draft: the step the user left off on. */
+  atStep?: number;
   [key: string]: unknown;
 }
 
 const _now = new Date();
+/* ─── Earning basis (role-aware KPIs) ─────────────────────────────────────── */
+
+/**
+ * KPIs that can pay a manager off their juniors instead of their own slabs.
+ * `own` / `juniors` are the values written to the KPI config's `role` field, so
+ * the selected basis is recoverable from config alone — shared by the KPI step's
+ * selector and the rules payload builder so the two can't drift apart.
+ */
+export const ROLE_AWARE_KPIS: Record<string, { own: string; juniors: string } | undefined> = {
+  eco: { own: "mr", juniors: "aso_ase" },
+  tlsd: { own: "mr", juniors: "aso_ase" },
+  dbb: { own: "mr", juniors: "aso_ase" },
+  qnsv: { own: "MR", juniors: "ASO" },
+};
+
+/**
+ * Default multiplier shown when the user hasn't touched the field. `qnsv` has no
+ * multiplier control (its payout is fixed), so it maps 1:1 onto the juniors'
+ * average; the others default to 3, matching the KPI step's displayed default.
+ */
+function defaultJuniorMultiplier(templateId: string): number {
+  return templateId === "qnsv" ? 1 : 3;
+}
+
+/** True when this KPI is set to pay off the juniors' average earning. */
+export function isJuniorEarningBasis(templateId: string, config: unknown): boolean {
+  const map = ROLE_AWARE_KPIS[templateId];
+  if (!map) return false;
+  return (config as { role?: string } | undefined)?.role === map.juniors;
+}
+
+/** Multiplier applied to the juniors' average earning. */
+export function juniorEarningMultiplier(templateId: string, config: unknown): number {
+  const raw = (config as { rateMultiplier?: number } | undefined)?.rateMultiplier;
+  return typeof raw === "number" && Number.isFinite(raw)
+    ? raw
+    : defaultJuniorMultiplier(templateId);
+}
+
 export const emptyBasics: BasicsState = {
   name: "",
   calendar: { kind: "standard" },

@@ -105,27 +105,7 @@ function generateInsights(programs: IncentiveProgram[]): ComputedInsight[] {
     });
   }
 
-  // 4. Budget at risk — program with low budget usage vs high attainment gap
-  const budgetPrograms = programs.filter(p => p.allocatedBudget);
-  if (budgetPrograms.length) {
-    const lowAttainment = budgetPrograms
-      .map(p => ({ p, rate: parseRate(p) }))
-      .filter(x => !isNaN(x.rate) && x.rate < 50);
-    if (lowAttainment.length) {
-      const riskiest = lowAttainment.reduce((a, b) => a.rate < b.rate ? a : b);
-      insights.push({
-        title: "Budget at risk",
-        body: `${riskiest.p.name} has ${riskiest.p.allocatedBudget} allocated but only ${riskiest.p.attainmentRate} attainment — consider adjusting targets`,
-        evidence: `${riskiest.p.coverageCount} may not earn payouts at current pace`,
-        cta: "Review Program",
-        ctaAction: "view",
-        ctaProgramId: riskiest.p.name,
-        icon: icons[3],
-      });
-    }
-  }
-
-  // 5. Regional opportunity — region with highest attainment but fewest programs
+  // 4. Regional opportunity — region with highest attainment but fewest programs
   const byRegion: Record<string, { rates: number[]; count: number }> = {};
   programs.forEach(p => {
     const rate = parseRate(p);

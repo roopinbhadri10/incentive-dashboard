@@ -37,10 +37,10 @@ export const TOUR_STEPS: TourStep[] = [
     placement: "right",
   },
   {
-    id: "analytics",
+    id: "nav-analytics",
     selector: '[data-tour="nav-analytics"]',
     title: "Analytics",
-    body: "Track Performance (attainment, KPIs, leaderboards) and ROI Analysis (incremental sales, payout efficiency, budget burn) in real time.",
+    body: "One place for attainment, payout to date, KPI health and per-programme detail — updated from the incentive engine.",
     view: "/programs",
     placement: "right",
   },
@@ -61,19 +61,11 @@ export const TOUR_STEPS: TourStep[] = [
     placement: "top",
   },
   {
-    id: "performance",
-    selector: '[data-tour="performance-page"]',
-    title: "Performance dashboard",
-    body: "Topline KPIs, attainment trend, KPI heatmap and rep leaderboards — everything you need for your weekly review.",
-    view: "/analytics/performance",
-    placement: "auto",
-  },
-  {
-    id: "roi",
-    selector: '[data-tour="roi-page"]',
-    title: "ROI Analysis",
-    body: "See blended ROI, payout-vs-return scatter, budget burn and a period-end forecast. Reallocate budget where it works hardest.",
-    view: "/analytics/roi",
+    id: "analytics",
+    selector: '[data-tour="analytics-page"]',
+    title: "Analytics",
+    body: "One place for everything: topline health, where people land, who the money reaches, programme detail, people and a live India map.",
+    view: "/analytics",
     placement: "auto",
   },
   {
@@ -99,6 +91,19 @@ interface TourContextValue {
 }
 
 const TourContext = createContext<TourContextValue | null>(null);
+
+/** Inert fallback so consumers never crash if rendered outside the provider. */
+const NOOP_TOUR: TourContextValue = {
+  isActive: false,
+  stepIndex: 0,
+  currentStep: null,
+  start: () => {},
+  next: () => {},
+  prev: () => {},
+  skip: () => {},
+  goToStep: () => {},
+  totalSteps: TOUR_STEPS.length,
+};
 
 const STORAGE_KEY = "salescode-tour-completed";
 
@@ -181,6 +186,5 @@ export function TourProvider({ children, onNavigate }: TourProviderProps) {
 
 export function useTour() {
   const ctx = useContext(TourContext);
-  if (!ctx) throw new Error("useTour must be used within TourProvider");
-  return ctx;
+  return ctx ?? NOOP_TOUR;
 }

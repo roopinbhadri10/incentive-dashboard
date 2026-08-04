@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronDown, Info, X, Database, ChevronRight, Check, Loader2, Users, FileSpreadsheet } from "lucide-react";
+import { ChevronDown, Info, X, Database, ChevronRight, Check, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import type { AudienceV2State, Channel } from "../builderState";
 import {
@@ -15,10 +15,7 @@ import {
   fetchGeographyTree,
   type GeographyTree,
 } from "@/lib/saleshubApi";
-// NOTE: user lists are read from the local store for now. Once the backend
-// exposes a "user lists by role" endpoint, swap batchesForRole/listBatches for
-// that fetch — the selection shape (batch ids in userListBatchIds) stays the same.
-import { batchesForRole, listBatches, type UserListBatch } from "@/lib/userListsStore";
+import { friendlyMessage } from "@/lib/apiError";
 
 interface Props {
   value: AudienceV2State;
@@ -331,19 +328,13 @@ export function AudienceV2Step({ value, onChange }: Props) {
   const [geoLoading, setGeoLoading] = useState(true);
   const [geoError, setGeoError] = useState<string | null>(null);
 
-  // User lists are kept in a local store today; re-read whenever they change so
-  // a list uploaded in another tab/page shows up here without a refresh.
-  const [userLists, setUserLists] = useState<UserListBatch[]>(() => listBatches());
-  useEffect(() => {
-    const h = () => setUserLists(listBatches());
-    window.addEventListener("userLists:change", h);
-    return () => window.removeEventListener("userLists:change", h);
-  }, []);
-
   useEffect(() => {
     fetchProgramRoles()
       .then(setRoles)
-      .catch((e: Error) => setRolesError(e.message))
+      .catch((e: unknown) => {
+        console.error("[audience] roles fetch failed:", e);
+        setRolesError(friendlyMessage(e, "load roles"));
+      })
       .finally(() => setRolesLoading(false));
     // Warm the role → API value mapping so payload building can resolve it.
     fetchRolePayloadValues().catch(() => { /* non-fatal */ });
@@ -354,26 +345,17 @@ export function AudienceV2Step({ value, onChange }: Props) {
   useEffect(() => {
     fetchGeographyTree()
       .then(setGeoTree)
-      .catch((e: Error) => setGeoError(e.message))
+      .catch((e: unknown) => {
+        console.error("[audience] geography fetch failed:", e);
+        setGeoError(friendlyMessage(e, "load regions"));
+      })
       .finally(() => setGeoLoading(false));
   }, []);
 
   const setDivision = (c: Channel) => onChange({ ...value, division: c });
 
   const setRole = (r: string) => {
-    // A user list belongs to exactly one role, so changing the role drops any
-    // previously-selected lists that no longer match.
-    const validIds = new Set(batchesForRole(r).map((b) => b.id));
-    const keptLists = (value.userListBatchIds ?? []).filter((id) => validIds.has(id));
-    onChange({ ...value, roles: r ? [r] : [], userListBatchIds: keptLists });
-  };
-
-  const toggleUserList = (id: string) => {
-    const current = value.userListBatchIds ?? [];
-    const next = current.includes(id)
-      ? current.filter((x) => x !== id)
-      : [...current, id];
-    onChange({ ...value, userListBatchIds: next });
+    onChange({ ...value, roles: r ? [r] : [] });
   };
 
   const toggleGeo = (g: string) => {
@@ -402,11 +384,6 @@ export function AudienceV2Step({ value, onChange }: Props) {
   };
 
   const selectedRole = value.roles[0] ?? "";
-  // Re-derived from `userLists` so it stays in sync with uploads from elsewhere.
-  const roleUserLists = selectedRole
-    ? userLists.filter((b) => b.role === selectedRole)
-    : [];
-  const selectedListIds = value.userListBatchIds ?? [];
 
   const geoSummary =
     value.geographies.length === 0
@@ -423,172 +400,174 @@ export function AudienceV2Step({ value, onChange }: Props) {
   ].join(" · ");
 
   return (
-    <div className="space-y-5 animate-fade-in max-w-3xl">
+    <div className="space-y-5 animate-fade-in">
       <div>
         <h2 className="text-xl font-semibold">Audience definition</h2>
         <p className="text-sm text-muted-foreground">Who will participate in this programme?</p>
       </div>
 
-      {/* Division */}
-      <Card className="p-5 space-y-3">
-        <Label className="text-sm font-medium">Division</Label>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {([
-            { id: "CCD", name: "Consumer Care Division" },
-            { id: "HCD", name: "Healthcare Division" },
-          ] as { id: Channel; name: string }[]).map((d) => {
-            const active = value.division === d.id;
-            return (
-              <button
-                key={d.id}
-                onClick={() => setDivision(d.id)}
-                className={`relative text-left rounded-xl border p-4 transition-all ${
-                  active
-                    ? "border-primary ring-1 ring-primary bg-primary/5 shadow-sm"
-                    : "border-border bg-background hover:border-muted-foreground/40 hover:bg-muted/30"
-                }`}
-              >
-                {active && (
-                  <span className="absolute top-3 right-3 inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                    <Check size={12} strokeWidth={3} />
-                  </span>
-                )}
-                <div className="text-lg font-bold text-foreground">{d.id}</div>
-                <div className="text-sm text-muted-foreground mt-1">{d.name}</div>
-              </button>
-            );
-          })}
-        </div>
-        <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
-          <Info size={11} className="mt-0.5 shrink-0" />
-          The first level of division for incentive audiences.
-        </p>
-      </Card>
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6 items-start">
+        <div className="space-y-5">
+          {/* Who's in this programme? */}
+          <Card className="p-6 space-y-6">
+            <h3 className="text-base font-semibold">Who's in this programme?</h3>
 
-      {/* Role */}
-      <Card className="p-5 space-y-3">
-        <Label className="text-sm font-medium">Role</Label>
-        <Select value={selectedRole} onValueChange={setRole} disabled={rolesLoading}>
-          <SelectTrigger>
-            {rolesLoading ? (
-              <span className="flex items-center gap-2 text-muted-foreground">
-                <Loader2 size={13} className="animate-spin" /> Loading roles…
-              </span>
-            ) : (
-              <SelectValue placeholder="Select a role" />
-            )}
-          </SelectTrigger>
-          <SelectContent>
-            {rolesError ? (
-              <div className="px-2 py-2 text-xs text-destructive">{rolesError}</div>
-            ) : (
-              roles.map((r) => (
-                <SelectItem key={r} value={r}>
-                  {r}
-                </SelectItem>
-              ))
-            )}
-          </SelectContent>
-        </Select>
-        <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
-          <Database size={11} className="mt-0.5 shrink-0" />
-          Roles synced from config. Create one programme per role.
-        </p>
-
-        {/* User lists — the lists uploaded for the selected role on the Users
-            List page. Selecting them scopes the programme to those users. */}
-        {selectedRole && (
-          <div className="space-y-2 border-t border-border pt-4">
-            <Label className="text-sm font-medium flex items-center gap-1.5">
-              <Users size={14} /> User lists{" "}
-              <span className="text-muted-foreground font-normal">(optional)</span>
-            </Label>
-            {roleUserLists.length === 0 ? (
-              <p className="text-xs text-muted-foreground">
-                No user lists uploaded for {selectedRole}. Upload them on the Users
-                List page to scope this programme to specific users.
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {roleUserLists.map((b) => {
-                  const checked = selectedListIds.includes(b.id);
-                  const active = b.users.filter((u) => u.active).length;
+            {/* Division */}
+            <div className="space-y-3">
+              <Label className="text-sm font-medium">Division</Label>
+              <div className="grid grid-cols-2 gap-3">
+                {([
+                  { id: "CCD", name: "Consumer Care Division" },
+                  { id: "HCD", name: "Healthcare Division" },
+                ] as { id: Channel; name: string }[]).map((d) => {
+                  const active = value.division === d.id;
                   return (
                     <button
-                      key={b.id}
+                      key={d.id}
                       type="button"
-                      onClick={() => toggleUserList(b.id)}
-                      className={`w-full flex items-center gap-3 rounded-lg border p-3 text-left transition-all ${
-                        checked
-                          ? "border-primary ring-1 ring-primary bg-primary/5"
-                          : "border-border bg-background hover:border-muted-foreground/40 hover:bg-muted/30"
+                      onClick={() => setDivision(d.id)}
+                      className={`relative text-left rounded-lg border-2 p-4 transition-all hover:shadow-sm ${
+                        active
+                          ? "border-primary bg-primary/10"
+                          : "border-border bg-card hover:border-muted-foreground/30"
                       }`}
                     >
-                      <Checkbox checked={checked} className="pointer-events-none" />
-                      <FileSpreadsheet size={16} className="text-muted-foreground shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium truncate">{b.fileName}</div>
-                        <div className="text-[11px] text-muted-foreground mt-0.5">
-                          {b.users.length} user{b.users.length === 1 ? "" : "s"} · {active} active ·
-                          uploaded {new Date(b.uploadedAt).toLocaleDateString()}
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className={`text-base font-semibold ${active ? "text-primary" : "text-foreground"}`}>{d.id}</div>
+                          <div className="text-xs text-muted-foreground mt-0.5">{d.name}</div>
                         </div>
+                        {active && (
+                          <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center shrink-0">
+                            <Check size={14} className="text-primary-foreground" strokeWidth={3} />
+                          </div>
+                        )}
                       </div>
                     </button>
                   );
                 })}
               </div>
-            )}
+            </div>
+
+            <div className="border-t border-border" />
+
+            {/* Role */}
+            <div className="space-y-3">
+              <Label className="text-sm font-medium">Role</Label>
+              <Select value={selectedRole} onValueChange={setRole} disabled={rolesLoading}>
+                <SelectTrigger>
+                  {rolesLoading ? (
+                    <span className="flex items-center gap-2 text-muted-foreground">
+                      <Loader2 size={13} className="animate-spin" /> Loading roles…
+                    </span>
+                  ) : (
+                    <SelectValue placeholder="Select a role" />
+                  )}
+                </SelectTrigger>
+                <SelectContent>
+                  {rolesError ? (
+                    <div className="px-2 py-2 text-xs text-destructive">{rolesError}</div>
+                  ) : (
+                    roles.map((r) => (
+                      <SelectItem key={r} value={r}>
+                        {r}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
+                <Database size={11} className="mt-0.5 shrink-0" />
+                Roles synced from config. Create one programme per role.
+              </p>
+            </div>
+          </Card>
+
+          {/* Geography */}
+          <Card className="p-6 space-y-5">
+            <h3 className="text-base font-semibold">Geography</h3>
+
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium">Region</Label>
+              <CascadingGeoPicker
+                placeholder="Select regions (Zone → State → City)"
+                selected={value.geographies}
+                onToggle={toggleGeo}
+                tree={geoTree}
+                loading={geoLoading}
+                error={geoError}
+              />
+            </div>
+
+            <div className="border-t border-border" />
+
+            <div id="audience-exceptions-field" className="space-y-1.5 scroll-mt-4">
+              <Label className="text-sm font-medium">
+                Exceptions <span className="text-muted-foreground font-normal">(optional)</span>
+              </Label>
+              <CascadingGeoPicker
+                placeholder="e.g. North except Uttar Pradesh"
+                selected={value.geographyExceptions}
+                onToggle={toggleException}
+                includeAllIndia={false}
+                scopeGeographies={value.geographies}
+                tree={geoTree}
+                loading={geoLoading}
+                error={geoError}
+              />
+              <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
+                <Info size={11} className="mt-0.5 shrink-0" />
+                Pick wider regions above, then exclude specific zones/states/cities here.
+              </p>
+            </div>
+
+            <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
+              <Database size={11} className="mt-0.5 shrink-0" />
+              Regions integrated from client master data (zones, states, cities).
+            </p>
+          </Card>
+        </div>
+
+        {/* Right panel — live summary */}
+        <Card className="p-5 lg:sticky lg:top-4 border-l-4 border-l-primary/60 space-y-4">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Audience summary
+            </p>
+            <p className="mt-1 text-sm font-semibold text-foreground leading-snug break-words">
+              {summary}
+            </p>
           </div>
-        )}
-      </Card>
+          <div className="space-y-2.5 text-xs">
+            <SummaryRow label="Division" value={value.division || "—"} />
+            <SummaryRow label="Role" value={selectedRole || "—"} />
+            <SummaryRow
+              label="Regions"
+              value={value.geographies.length ? value.geographies.join(", ") : "—"}
+            />
+            <SummaryRow
+              label="Exceptions"
+              value={
+                value.geographyExceptions.length ? value.geographyExceptions.join(", ") : "None"
+              }
+            />
+          </div>
+          <div className="rounded-md bg-primary/5 border border-primary/15 p-2.5">
+            <p className="text-[11px] text-foreground/75 leading-relaxed">
+              💡 Pick wider regions first, then trim with exceptions.
+            </p>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
 
-      {/* Geography */}
-
-      <Card className="p-5 space-y-3">
-        <div className="space-y-1.5">
-          <Label className="text-sm font-medium">Region</Label>
-          <CascadingGeoPicker
-            placeholder="Select regions (Zone → State → City)"
-            selected={value.geographies}
-            onToggle={toggleGeo}
-            tree={geoTree}
-            loading={geoLoading}
-            error={geoError}
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-sm font-medium">
-            Exceptions <span className="text-muted-foreground font-normal">(optional)</span>
-          </Label>
-          <CascadingGeoPicker
-            placeholder="e.g. North except Uttar Pradesh"
-            selected={value.geographyExceptions}
-            onToggle={toggleException}
-            includeAllIndia={false}
-            scopeGeographies={value.geographies}
-            tree={geoTree}
-            loading={geoLoading}
-            error={geoError}
-          />
-          <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
-            <Info size={11} className="mt-0.5 shrink-0" />
-            Pick wider regions above, then exclude specific zones/states/cities here.
-          </p>
-        </div>
-
-        <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
-          <Database size={11} className="mt-0.5 shrink-0" />
-          Regions integrated from client master data (zones, states, cities).
-        </p>
-      </Card>
-
-      <Card className="p-4 bg-primary/5 border-primary/20">
-        <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">
-          This programme will apply to:
-        </div>
-        <div className="text-sm font-medium">{summary}</div>
-      </Card>
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <span className="text-muted-foreground shrink-0">{label}</span>
+      <span className="font-medium text-foreground text-right break-words">{value}</span>
     </div>
   );
 }

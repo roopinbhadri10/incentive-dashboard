@@ -1,12 +1,21 @@
 import { cn } from "@/lib/utils";
-import { Check, Lock } from "lucide-react";
+import {
+  Check,
+  ChevronRight,
+  ClipboardCheck,
+  FileText,
+  Lock,
+  ShieldCheck,
+  Target,
+  Users,
+} from "lucide-react";
 
 export const WIZARD_STEPS = [
-  { id: 1, label: "Basics", description: "Programme basics", optional: false },
-  { id: 2, label: "Audience", description: "Who this programme is for", optional: false },
-  { id: 3, label: "KPIs", description: "Build KPIs & payouts", optional: false },
-  { id: 4, label: "Gates", description: "Conditional rules", optional: false },
-  { id: 5, label: "Review", description: "Review & simulate", optional: false },
+  { id: 1, label: "Basics", description: "Programme basics", optional: false, icon: FileText },
+  { id: 2, label: "Audience", description: "Who this programme is for", optional: false, icon: Users },
+  { id: 3, label: "KPIs", description: "Build KPIs & payouts", optional: false, icon: Target },
+  { id: 4, label: "Gates", description: "Conditional rules", optional: false, icon: ShieldCheck },
+  { id: 5, label: "Review", description: "Review & simulate", optional: false, icon: ClipboardCheck },
 ] as const;
 
 interface WizardStepperProps {
@@ -16,61 +25,68 @@ interface WizardStepperProps {
   maxStep?: number;
 }
 
+/**
+ * Breadcrumb-chip step navigation, matching the SFA configurator reference:
+ * icon + label chips separated by chevrons, teal underline for the active step,
+ * check mark for completed steps, quiet grey for upcoming ones. Steps beyond
+ * `maxStep` stay locked until their prerequisites pass.
+ */
 export function WizardStepper({ currentStep, onStepClick, maxStep = WIZARD_STEPS.length }: WizardStepperProps) {
   return (
-    <div className="bg-card border-b border-border px-6 py-3">
-      <div className="flex items-start gap-1 w-[65%]">
-        {WIZARD_STEPS.map((step, index) => {
-          const isActive = currentStep === step.id;
-          const isComplete = currentStep > step.id;
-          const locked = step.id > maxStep && !isActive;
-          return (
-            <div key={step.id} className="flex items-start flex-1">
-              <button
-                onClick={() => { if (!locked) onStepClick(step.id); }}
-                disabled={locked}
-                title={locked ? "Complete the earlier steps first" : undefined}
+    <nav
+      aria-label="Programme setup steps"
+      className="wizard-breadcrumb relative flex items-center gap-0.5 overflow-x-auto px-5"
+    >
+      {WIZARD_STEPS.map((step, index) => {
+        const isActive = currentStep === step.id;
+        const isComplete = currentStep > step.id;
+        const locked = step.id > maxStep && !isActive;
+        const Icon = step.icon;
+        return (
+          <div key={step.id} className="flex items-center shrink-0">
+            {index > 0 && (
+              <ChevronRight
+                size={15}
+                className={cn("mx-0.5 shrink-0", isComplete || isActive ? "text-primary/40" : "text-muted-foreground/40")}
+              />
+            )}
+            <button
+              type="button"
+              onClick={() => { if (!locked) onStepClick(step.id); }}
+              disabled={locked}
+              aria-current={isActive ? "step" : undefined}
+              title={locked ? "Complete the earlier steps first" : step.description}
+              className={cn(
+                "group relative inline-flex items-center gap-2 px-2.5 py-3 text-sm transition-colors",
+                isActive && "font-medium text-primary",
+                !isActive && isComplete && "text-foreground/70 hover:text-foreground",
+                !isActive && !isComplete && "text-muted-foreground hover:text-foreground",
+                locked && "cursor-not-allowed opacity-40 hover:text-muted-foreground",
+              )}
+            >
+              <span
                 className={cn(
-                  "flex flex-col items-center gap-1 px-2 py-1 rounded-md transition-all min-w-0 flex-1",
-                  locked ? "cursor-not-allowed opacity-40" : "cursor-pointer",
+                  "inline-flex h-5 w-5 items-center justify-center transition-colors",
+                  isComplete && !isActive && "text-primary",
+                  isActive && "text-primary",
+                  !isActive && !isComplete && "text-muted-foreground/70",
                 )}
               >
-                <span
-                  className={cn(
-                    "w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold transition-colors",
-                    isActive && "bg-primary text-primary-foreground shadow-sm",
-                    isComplete && "bg-primary/80 text-primary-foreground",
-                    !isActive && !isComplete && "bg-muted text-muted-foreground"
-                  )}
-                >
-                  {locked ? <Lock size={11} /> : isComplete ? <Check size={12} /> : step.id}
+                {locked ? <Lock size={13} /> : isComplete && !isActive ? <Check size={13} strokeWidth={3} /> : <Icon size={15} />}
+              </span>
+              <span className="whitespace-nowrap leading-none">{step.label}</span>
+              {step.optional && (
+                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-muted-foreground">
+                  opt
                 </span>
-                <span
-                  className={cn(
-                    "text-xs font-medium leading-tight text-center",
-                    isActive && "text-primary",
-                    isComplete && "text-primary/70",
-                    !isActive && !isComplete && "text-muted-foreground"
-                  )}
-                >
-                  {step.label}
-                  {step.optional && (
-                    <span className="ml-1 text-[9px] uppercase tracking-wide text-muted-foreground/70">(opt)</span>
-                  )}
-                </span>
-              </button>
-              {index < WIZARD_STEPS.length - 1 && (
-                <div
-                  className={cn(
-                    "h-px flex-1 mt-3 mx-0.5",
-                    isComplete ? "bg-primary/60" : "bg-border"
-                  )}
-                />
               )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
+              {isActive && (
+                <span className="absolute inset-x-1 -bottom-px h-0.5 rounded-full bg-primary" />
+              )}
+            </button>
+          </div>
+        );
+      })}
+    </nav>
   );
 }

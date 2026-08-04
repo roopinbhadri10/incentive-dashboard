@@ -122,8 +122,13 @@ function channelsFor(conditions: RuleCondition[]): string[] {
 }
 
 function divisionFor(conditions: RuleCondition[]): Channel | undefined {
+  // `salesOrg` is what buildRulePayloads writes; the other two are legacy field
+  // names from earlier rule shapes.
   const v = conditions.find(
-    (c) => c.property === "outletDivision" || c.property === "division"
+    (c) =>
+      c.property === "salesOrg" ||
+      c.property === "outletDivision" ||
+      c.property === "division",
   )?.values?.[0];
   return v === "CCD" || v === "HCD" ? v : undefined;
 }

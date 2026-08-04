@@ -15,6 +15,7 @@ import type {
   ProgrammePeriod,
 } from "@/components/wizard/builderState";
 import { KPI_TEMPLATE_MAP, type KpiTemplateId } from "@/components/kpi-library/registry";
+import { isJuniorEarningBasis, juniorEarningMultiplier } from "@/components/wizard/builderState";
 import { getRolePayloadValue, getRoleDesignation } from "@/lib/saleshubApi";
 import { getTenantId } from "@/config/auth";
 import {
@@ -183,6 +184,10 @@ export interface GateConditionPayload {
 export interface RuleApiPayload {
   // Tenant the rule belongs to (also sent in the X-Tenant-Id header).
   tenantId: string;
+  // Groups every rule created from one programme. A programme with N KPIs
+  // produces N rules that all carry the same programId, so the engine can tie
+  // them back to a single programme.
+  programId: string;
   ruleName: string;
   ruleCode: string;
   ruleType: string;
@@ -220,6 +225,10 @@ export interface RuleApiPayload {
     // Cap (max payable achievement / outlets / …) so the editor can restore the
     // toggle + value. `value` is the KPI-specific cap amount (pct / outlets / …).
     cap?: { enabled: boolean; value: number | null };
+    // Present only when the KPI's earning basis is the juniors' average earning
+    // (see EarningBasisSelector): the manager earns `multiplier` × the average
+    // earning their juniors made on `childKpiId`. Absent for own-achievement KPIs.
+    ruleMappings?: Array<{ childKpiId: string; multiplier: number }>;
     tiers: RuleTier[];
   };
   // The rule's primary KPI config (first-class entity, snake_case contract).
@@ -792,10 +801,28 @@ function buildKpiLevelGateConditions(
 /* ─── Entry point ────────────────────────────────────────────────────────── */
 
 /** Build one POST `/v1/rules` payload per KPI in the program. */
+/**
+ * A fresh UUID v4. Uses the platform generator where available (all current
+ * browsers on HTTPS/localhost) and falls back to a spec-shaped random id built
+ * from `crypto.getRandomValues` for older or non-secure contexts.
+ */
+export function newProgramId(): string {
+  const c = globalThis.crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  const b = new Uint8Array(16);
+  c.getRandomValues(b);
+  b[6] = (b[6] & 0x0f) | 0x40; // version 4
+  b[8] = (b[8] & 0x3f) | 0x80; // variant 10
+  const hex = [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
   const { basics, audience, channels, gates, programKpis } = state;
   const { from, till } = periodRange(basics);
   const ruleName = basics.name?.trim() || "Untitled programme";
+  // One id per programme, shared by every rule this call produces.
+  const programId = newProgramId();
   const applicabilityCriteria = buildApplicabilityCriteria(audience, channels ?? []);
   const calculationFrequency = FREQ_BY_PERIOD[basics.period] ?? "MONTHLY";
   const multi = programKpis.length > 1;
@@ -868,8 +895,23 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
           }
         : {};
 
+    // Earning basis: when the KPI pays a manager off their juniors' average
+    // earning (rather than their own slabs), tell the engine which child KPI to
+    // average and by what multiplier. Own-achievement KPIs omit the field.
+    const ruleMappings = isJuniorEarningBasis(kpi.templateId, kpi.config)
+      ? {
+          ruleMappings: [
+            {
+              childKpiId: kpiId,
+              multiplier: juniorEarningMultiplier(kpi.templateId, kpi.config),
+            },
+          ],
+        }
+      : {};
+
     return {
       tenantId: getTenantId(),
+      programId,
       ruleName,
       ruleCode,
       ruleType: "SLAB",
@@ -878,7 +920,9 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
       effectiveFrom: from,
       effectiveTill: till,
       priority: 1,
-      status: "DRAFT",
+      // Publishing goes live immediately — the engine should treat the rule as
+      // approved, not parked for review. Matches the nested kpiConfig status.
+      status: "APPROVED",
       isActive: true,
       applicabilityCriteria,
       ruleDefinition: {
@@ -894,6 +938,7 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
         ...minQty,
         ...cap,
         ...(payout.lineBased ? { lineBasedEarning: true } : {}),
+        ...ruleMappings,
         tiers: toRangeTiers(payout.tiers, {
           // Only % step-up shifts a band's rate to the next slab; per-outlet/per-line
           // curves keep their own rate even though they emit stepUpBy1Percent: true.

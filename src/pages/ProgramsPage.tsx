@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
@@ -12,17 +11,26 @@ import {
   MoreHorizontal,
   Plus,
   CalendarDays,
+  Eye,
   TrendingUp,
   Lightbulb,
   AlertCircle,
   ArrowUpDown,
-  ChevronDown,
   CheckCircle2,
   AlertTriangle,
   TrendingDown,
   Lock,
   BarChart3,
+  PlayCircle,
+  X,
 } from "lucide-react";
+import { stepName as wizardStepName, TOTAL_WIZARD_STEPS } from "@/lib/wizardDraftStore";
+import { friendlyMessage } from "@/lib/apiError";
+import {
+  fetchProgramAnalytics,
+  byProgramId,
+  type ProgramAnalytics,
+} from "@/lib/analyticsApi";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { archiveRule, fetchRules } from "@/lib/ruleApi";
 import { useToast } from "@/hooks/use-toast";
@@ -81,6 +89,27 @@ interface ProgramsPageProps {
   onViewAnalytics?: (programId: string) => void;
   onOpenSavedProgram?: (id: string) => void;
   savedPrograms?: Array<{ id: string; name: string; role: string; quarterLabel: string; createdAt: string }>;
+  /** Part-built programmes autosaved by the wizard. */
+  drafts?: Array<{ id: string; name: string; atStep: number; updatedAt: string }>;
+  onResumeDraft?: (id: string) => void;
+  onDiscardDraft?: (id: string) => void;
+  /** Controlled status filter. Supplied by the /campaigns/:status routes so the
+   *  sidebar, the URL and the dropdown can't drift apart. Omitted on /programs,
+   *  where the dropdown owns the filter locally. */
+  statusFilter?: StatusFilter;
+  onStatusFilterChange?: (v: StatusFilter) => void;
+}
+
+function formatRelativeTime(d: Date): string {
+  const diff = Date.now() - d.getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  return d.toLocaleDateString();
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -139,39 +168,108 @@ function hasPendingMdmUpload(p: Programme): boolean {
   );
 }
 
-function statusPillClasses(status: ProgrammeStatus): string {
-  switch (status) {
-    case "draft":    return "bg-muted text-muted-foreground border-border";
-    case "active":   return "bg-emerald-50 text-emerald-700 border-emerald-200";
-    case "locked":   return "bg-amber-50 text-amber-800 border-amber-200";
-    case "archived": return "bg-muted/50 text-muted-foreground/70 border-border";
-    case "inactive": return "bg-rose-50 text-rose-700 border-rose-200";
-  }
+// The standard campaign/filter vocabulary: Active · Scheduled · Draft ·
+// Completed · Archived.
+//
+// NOTE the value/label mismatch on the last one: the engine flags an archived
+// programme with `isActive: false`, which ruleToProgramme maps to the status
+// `"inactive"` — so the filter value stays `"inactive"` while the label reads
+// "Archived". Renaming the value to `"archived"` would silently retarget the
+// filter at the *other* status, `ProgrammeStatus["archived"]`, which this app
+// surfaces as "Completed".
+export type StatusFilter = "all" | "active" | "scheduled" | "draft" | "completed" | "inactive";
+
+/** Category a published programme falls into. "draft" is not reachable here — a
+ *  draft has no engine record; those live in the wizard draft store. */
+export type ProgrammeCategory = "active" | "scheduled" | "completed" | "inactive";
+
+/** Local midnight for an ISO `YYYY-MM-DD`, so comparisons are whole-day. */
+function startOfDay(iso: string | undefined): number | null {
+  if (!iso) return null;
+  const t = Date.parse(`${iso.slice(0, 10)}T00:00:00`);
+  return Number.isNaN(t) ? null : t;
 }
 
-// Left-edge accent bar shown only for live programmes (matches the Active
-// treatment in the list design); other statuses render a flush card.
-function statusAccentClass(status: ProgrammeStatus): string {
-  return status === "active"
-    ? "border-l-[3px] border-l-emerald-500 bg-emerald-50/30"
-    : "";
+/**
+ * Categorise a programme from the engine's effective window:
+ *   Archived  — turned off (`isActive: false`), regardless of dates
+ *   Scheduled — today is before effectiveFrom
+ *   Completed — today is after effectiveTill
+ *   Active    — today falls inside the window (inclusive)
+ *
+ * Falls back to the stored status when the window is missing/unparseable, so a
+ * rule without dates still lands somewhere sensible instead of vanishing.
+ */
+export function programmeCategory(p: Programme, now: Date = new Date()): ProgrammeCategory {
+  // A switched-off programme is archived whatever its dates say.
+  if (p.status === "inactive") return "inactive";
+
+  const today = startOfDay(
+    `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`,
+  )!;
+  const from = startOfDay(p.effectiveFrom);
+  const till = startOfDay(p.effectiveTill);
+
+  if (from !== null && today < from) return "scheduled";
+  if (till !== null && today > till) return "completed";
+  if (from !== null || till !== null) return "active";
+
+  // No usable window — fall back to the stored status.
+  if (p.status === "archived" || p.status === "locked") return "completed";
+  return p.status === "active" ? "active" : "completed";
 }
 
-// Small status dot beside the programme name — green for live, grey otherwise.
-function statusDotClass(status: ProgrammeStatus): string {
-  switch (status) {
-    case "active":   return "bg-emerald-500";
-    case "locked":   return "bg-amber-500";
-    case "inactive": return "bg-rose-500";
-    case "draft":    return "bg-muted-foreground/40";
-    case "archived": return "bg-muted-foreground/40";
-  }
+const CATEGORY_LABEL: Record<ProgrammeCategory, string> = {
+  active: "Active",
+  scheduled: "Scheduled",
+  completed: "Completed",
+  inactive: "Archived",
+};
+
+// Pill + dot are keyed off the same derived category as the label, so colour and
+// wording can never disagree.
+const CATEGORY_PILL: Record<ProgrammeCategory, string> = {
+  active: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  scheduled: "bg-sky-50 text-sky-700 border-sky-200",
+  // Completed and Archived are both "no longer running", so both read muted.
+  // Completed sits slightly lighter so the two stay distinguishable side by side.
+  completed: "bg-muted/50 text-muted-foreground/70 border-border",
+  inactive: "bg-muted text-muted-foreground border-border",
+};
+
+const CATEGORY_DOT: Record<ProgrammeCategory, string> = {
+  active: "bg-emerald-500",
+  scheduled: "bg-sky-500",
+  completed: "bg-muted-foreground/40",
+  inactive: "bg-muted-foreground/60",
+};
+
+// Proper-cased, standardised label for a programme. Never renders the raw data
+// value to the user.
+function statusLabel(p: Programme): string {
+  return CATEGORY_LABEL[programmeCategory(p)];
 }
 
 const CHANNEL_STYLE: Record<ChannelType, { bg: string; fg: string; label: string }> = {
   CCD: { bg: "rgba(0,109,78,0.10)",  fg: "#006D4E", label: "CCD" },
   HCD: { bg: "rgba(72,61,158,0.10)", fg: "#483D9E", label: "HCD" },
 };
+
+// ─── Quick-stats helpers ────────────────────────────────────────────────────
+function formatInr(amount: number): string {
+  if (amount >= 10000000) return `₹${(amount / 10000000).toFixed(amount >= 100000000 ? 0 : 1)}Cr`;
+  if (amount >= 100000) return `₹${(amount / 100000).toFixed(amount >= 1000000 ? 0 : 1)}L`;
+  if (amount >= 1000) return `₹${(amount / 1000).toFixed(0)}K`;
+  return `₹${amount.toLocaleString("en-IN")}`;
+}
+
+/**
+ * Headline payout / attainment for a programme row, straight from
+ * GET /v1/programs/analytics. `undefined` means the engine has no analytics for
+ * this programme — either it predates `programId` or no cycle has run — and the
+ * row reads "Awaiting data". Nothing here is derived or estimated locally.
+ */
+type ProgrammeQuickStats = ProgramAnalytics | undefined;
 
 // ─── Main page ──────────────────────────────────────────────────────────────
 export function ProgramsPage({
@@ -182,11 +280,22 @@ export function ProgramsPage({
   onViewAnalytics,
   onOpenSavedProgram,
   savedPrograms = [],
+  drafts = [],
+  onResumeDraft,
+  onDiscardDraft,
+  statusFilter: statusFilterProp,
+  onStatusFilterChange,
 }: ProgramsPageProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [channelFilter, setChannelFilter] = useState<"all" | ChannelType>("all");
   const [roleFilter, setRoleFilter] = useState<"all" | string>("all");
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "draft" | "archived" | "inactive">("all");
+  // Controlled by the route on /campaigns/:status, local otherwise.
+  const [internalStatusFilter, setInternalStatusFilter] = useState<StatusFilter>("all");
+  const statusFilter = statusFilterProp ?? internalStatusFilter;
+  const setStatusFilter = (v: StatusFilter) => {
+    if (onStatusFilterChange) onStatusFilterChange(v);
+    else setInternalStatusFilter(v);
+  };
   const [periodFilter, setPeriodFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"newest" | "earning" | "period" | "name">("newest");
   const [selected, setSelected] = useState<string[]>([]);
@@ -208,6 +317,7 @@ export function ProgramsPage({
     isLoading,
     isError,
     error,
+    refetch,
   } = useQuery({
     queryKey: ["rules"],
     queryFn: async () => {
@@ -226,6 +336,15 @@ export function ProgramsPage({
 
   // Archive a programme via DELETE /v1/rules/{id}, then refetch the list so the
   // row drops out (or re-renders as Ended once the engine reflects it).
+  // Live analytics for every programme in the tenant, joined onto rows by
+  // programId. Kept in its own query so a slow/failing analytics call never
+  // blocks the programmes list from rendering.
+  const { data: analyticsList = [] } = useQuery({
+    queryKey: ["programAnalytics"],
+    queryFn: fetchProgramAnalytics,
+  });
+  const analyticsByProgram = useMemo(() => byProgramId(analyticsList), [analyticsList]);
+
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const archiveMutation = useMutation({
@@ -238,9 +357,10 @@ export function ProgramsPage({
       });
     },
     onError: (err) => {
+      console.error("[archive] failed:", err);
       toast({
         title: "Couldn't archive programme",
-        description: err instanceof Error ? err.message : String(err),
+        description: friendlyMessage(err, "archive this programme"),
         variant: "destructive",
       });
     },
@@ -263,9 +383,10 @@ export function ProgramsPage({
       if (channelFilter !== "all" && p.channel !== channelFilter) return false;
       if (roleFilter !== "all" && p.role !== roleFilter) return false;
       if (statusFilter !== "all") {
-        if (statusFilter === "archived") {
-          if (p.status !== "archived" && p.status !== "locked") return false;
-        } else if (p.status !== statusFilter) return false;
+        // "Draft" means unpublished wizard drafts, which have no engine record —
+        // so no published programme belongs under it.
+        if (statusFilter === "draft") return false;
+        if (programmeCategory(p) !== statusFilter) return false;
       }
       if (periodFilter !== "all" && formatPeriod(p.period) !== periodFilter) return false;
       return true;
@@ -308,30 +429,99 @@ export function ProgramsPage({
 
   return (
     <TooltipProvider delayDuration={150}>
-      <div className="flex-1 overflow-y-auto bg-background">
-        <div className="bg-card rounded-xl mx-4 mt-4 mb-4 p-4 space-y-4">
-          {/* Header */}
-          <div className="programmes-banner relative -mx-4 -mt-4 overflow-hidden rounded-t-xl px-6 py-6">
-            <div className="relative flex items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <div className="h-12 w-1.5 rounded-full bg-gradient-to-b from-[#00C6B1] to-[#227C9D]" />
-                <div>
-                  <h1 className="text-3xl font-bold leading-tight text-white">
-                    Programmes
-                  </h1>
-                  <p className="mt-1 text-sm text-white/50">
-                    <span className="font-semibold text-[#2DD4BF]">{filtered.length}</span> of {programmes.length} programmes
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={onCreateNew}
-                className="gradient-create-btn inline-flex h-11 items-center gap-2 rounded-xl px-5 text-sm font-semibold text-white shadow-lg shadow-[#00C6B1]/20 transition hover:brightness-110"
-              >
-                <Plus size={18} /> New programme
-              </button>
-            </div>
+      <div className="flex-1 overflow-y-auto">
+        <div className="surface-panel mx-6 mb-6 p-5 space-y-4">
+          {/* Header — slim count row with an inline filter reset */}
+          <div className="flex items-center justify-between gap-4 pb-2 border-b border-hairline">
+            <h1 className="text-lg font-semibold text-foreground">Programmes</h1>
+            <p className="text-xs text-muted-foreground">
+              <span className="text-primary font-semibold">{filtered.length}</span>
+              <span> of {programmes.length} programmes</span>
+              {(channelFilter !== "all" || roleFilter !== "all" || statusFilter !== "all" || periodFilter !== "all") && (
+                <>
+                  {" · "}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setChannelFilter("all");
+                      setRoleFilter("all");
+                      setStatusFilter("all");
+                      setPeriodFilter("all");
+                    }}
+                    className="text-primary hover:underline font-medium"
+                  >
+                    Clear filters
+                  </button>
+                </>
+              )}
+            </p>
           </div>
+
+          {/* Drafts in progress — resume the wizard from the step you left */}
+          {drafts.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Drafts in progress ({drafts.length})
+                </div>
+                <span className="text-[10px] text-muted-foreground/70">
+                  Auto-saved — pick up right where you left off
+                </span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                {drafts.map((d) => {
+                  const pct = Math.round((d.atStep / TOTAL_WIZARD_STEPS) * 100);
+                  const timeAgo = formatRelativeTime(new Date(d.updatedAt));
+                  return (
+                    <div
+                      key={d.id}
+                      className="group relative p-3 rounded-md border border-dashed border-orange-300/70 bg-orange-50/40 hover:border-orange-400 hover:bg-orange-50 transition"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => onResumeDraft?.(d.id)}
+                        className="w-full text-left"
+                      >
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <Pencil size={11} className="text-orange-600 shrink-0" />
+                          <span className="text-[10px] uppercase tracking-wide font-semibold text-orange-700">
+                            Draft
+                          </span>
+                          <span className="text-[10px] text-muted-foreground ml-auto">
+                            {timeAgo}
+                          </span>
+                        </div>
+                        <div className="text-sm font-medium truncate text-foreground">{d.name}</div>
+                        <div className="text-[11px] text-muted-foreground mt-0.5">
+                          Step {d.atStep} of {TOTAL_WIZARD_STEPS} · {wizardStepName(d.atStep)}
+                        </div>
+                        <div className="mt-2 h-1 w-full rounded-full bg-orange-100 overflow-hidden">
+                          <div className="h-full bg-orange-400" style={{ width: `${pct}%` }} />
+                        </div>
+                        <div className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-orange-700">
+                          <PlayCircle size={12} /> Continue
+                        </div>
+                      </button>
+                      {onDiscardDraft && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDiscardDraft(d.id);
+                          }}
+                          aria-label="Discard draft"
+                          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition w-5 h-5 rounded-full bg-white border border-border flex items-center justify-center text-muted-foreground hover:text-destructive"
+                        >
+                          <X size={11} />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="h-px bg-border my-2" />
+            </div>
+          )}
 
           {/* Saved programmes (created via wizard) */}
           {savedPrograms.length > 0 && (
@@ -357,23 +547,26 @@ export function ProgramsPage({
           {isLoading ? (
             <div className="py-12 text-center text-xs text-muted-foreground">Loading programmes…</div>
           ) : isError ? (
-            <div className="py-12 text-center text-xs text-destructive">
-              Couldn't load programmes{error instanceof Error ? `: ${error.message}` : ""}.
+            <div className="py-12 text-center space-y-3">
+              <p className="text-sm font-medium text-foreground">Couldn't load programmes</p>
+              <p className="text-xs text-muted-foreground">
+                {friendlyMessage(error, "load programmes")}
+              </p>
+              <Button variant="outline" size="sm" onClick={() => refetch()}>
+                Try again
+              </Button>
             </div>
           ) : isEmpty ? (
             <EmptyState onCreateNew={onCreateNew} />
           ) : (
             <>
-              {/* Status filter pills */}
-              <StatusPillBar value={statusFilter} onChange={setStatusFilter} programmes={programmes} />
-
               {/* Filter / sort bar */}
               <div className="flex items-center gap-2 flex-wrap">
                 <Select
                   value={channelFilter}
                   onValueChange={(v) => setChannelFilter(v as typeof channelFilter)}
                 >
-                  <SelectTrigger className="w-[130px] h-9 text-xs bg-card">
+                  <SelectTrigger className={cn("w-[130px] h-9 text-xs bg-card relative", channelFilter !== "all" && "border-primary ring-1 ring-primary after:content-[''] after:absolute after:top-1 after:right-1 after:w-1.5 after:h-1.5 after:rounded-full after:bg-primary")}>
                     <SelectValue placeholder="Division" />
                   </SelectTrigger>
                   <SelectContent>
@@ -386,7 +579,7 @@ export function ProgramsPage({
                   value={roleFilter}
                   onValueChange={(v) => setRoleFilter(v as typeof roleFilter)}
                 >
-                  <SelectTrigger className="w-[130px] h-9 text-xs bg-card">
+                  <SelectTrigger className={cn("w-[130px] h-9 text-xs bg-card relative", roleFilter !== "all" && "border-primary ring-1 ring-primary after:content-[''] after:absolute after:top-1 after:right-1 after:w-1.5 after:h-1.5 after:rounded-full after:bg-primary")}>
                     <SelectValue placeholder="Role" />
                   </SelectTrigger>
                   <SelectContent>
@@ -400,19 +593,20 @@ export function ProgramsPage({
                   value={statusFilter}
                   onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}
                 >
-                  <SelectTrigger className="w-[130px] h-9 text-xs bg-card">
+                  <SelectTrigger className={cn("w-[130px] h-9 text-xs bg-card relative", statusFilter !== "all" && "border-primary ring-1 ring-primary after:content-[''] after:absolute after:top-1 after:right-1 after:w-1.5 after:h-1.5 after:rounded-full after:bg-primary")}>
                     <SelectValue placeholder="Status" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All statuses</SelectItem>
-                    <SelectItem value="active">Live</SelectItem>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="scheduled">Scheduled</SelectItem>
                     <SelectItem value="draft">Draft</SelectItem>
-                    <SelectItem value="archived">Ended</SelectItem>
-                    <SelectItem value="inactive">Inactive</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="inactive">Archived</SelectItem>
                   </SelectContent>
                 </Select>
                 <Select value={periodFilter} onValueChange={setPeriodFilter}>
-                  <SelectTrigger className="w-[140px] h-9 text-xs bg-card gap-1.5">
+                  <SelectTrigger className={cn("w-[140px] h-9 text-xs bg-card gap-1.5 relative", periodFilter !== "all" && "border-primary ring-1 ring-primary after:content-[''] after:absolute after:top-1 after:right-1 after:w-1.5 after:h-1.5 after:rounded-full after:bg-primary")}>
                     <CalendarDays size={12} className="text-muted-foreground" />
                     <SelectValue placeholder="Period" />
                   </SelectTrigger>
@@ -468,6 +662,7 @@ export function ProgramsPage({
                     onViewAnalytics={onViewAnalytics ? () => onViewAnalytics(p.id) : undefined}
                     onArchive={() => archiveMutation.mutate({ id: p.id, name: p.name })}
                     isArchiving={archiveMutation.isPending && archiveMutation.variables?.id === p.id}
+                    analytics={p.programId ? analyticsByProgram.get(p.programId) : undefined}
                   />
                 ))}
                 {filtered.length === 0 && (
@@ -533,8 +728,11 @@ function ProgrammeRow({
   onViewAnalytics,
   onArchive,
   isArchiving,
+  analytics,
 }: {
   programme: Programme;
+  /** This programme's record from GET /v1/programs/analytics, if any. */
+  analytics?: ProgramAnalytics;
   selected: boolean;
   expanded: boolean;
   onToggleSelect: () => void;
@@ -552,21 +750,28 @@ function ProgrammeRow({
   // Drafts and live programmes can be ended; already-archived ones can't.
   const canArchive = programme.status === "draft" || programme.status === "active";
   const [confirmArchive, setConfirmArchive] = useState(false);
+  // A live programme is inside its effective window — scheduled ones haven't
+  // started, so they get neither the glow nor the pulsing dot, and no stats.
+  const category = programmeCategory(programme);
+  const isLive = category === "active";
+  // Scheduled programmes haven't started, so even a returned record has nothing
+  // meaningful to show yet.
+  const stats = category === "scheduled" ? undefined : analytics;
 
   return (
     <Card
       className={cn(
-        "group border transition-all hover:shadow-sm hover:border-primary/30 overflow-hidden",
-        statusAccentClass(programme.status),
-        selected && "border-primary/50 bg-primary/[0.02]",
+        "group relative border transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_12px_30px_-18px_rgba(0,163,146,0.55)] hover:border-primary/40 overflow-hidden",
+        selected && "border-primary/50 bg-primary/[0.03]",
         expanded && "border-primary/40 shadow-sm",
+        isLive && "card-active-glow",
       )}
     >
-      <div className="p-4 flex items-center gap-4">
+      <div className="p-4 flex items-stretch gap-4">
         {/* Checkbox — appears on hover or when selected */}
         <div
           className={cn(
-            "shrink-0 transition-opacity",
+            "shrink-0 self-center transition-opacity",
             selected ? "opacity-100" : "opacity-0 group-hover:opacity-100",
           )}
         >
@@ -578,116 +783,93 @@ function ProgrammeRow({
           type="button"
           onClick={onToggleExpand}
           aria-expanded={expanded}
-          className="flex-1 min-w-0 text-left"
+          className="flex-1 min-w-0 text-left flex flex-col justify-center gap-1.5"
         >
-          <div className="flex items-center gap-2 flex-wrap mb-1.5">
-            <p className="text-sm font-semibold text-foreground truncate">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-[15px] font-medium tracking-tight text-foreground truncate uppercase">
               {programme.name}
             </p>
-            <span
-              className={cn(
-                "inline-flex w-2 h-2 rounded-full shrink-0",
-                statusDotClass(programme.status),
-              )}
-              aria-hidden
-            />
-            {pendingMdm && (
-              <Tooltip>
-                <TooltipTrigger asChild>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium",
+                    CATEGORY_PILL[category],
+                  )}
+                >
                   <span
-                    className="inline-flex items-center justify-center w-2 h-2 rounded-full bg-orange-500 shrink-0"
-                    aria-label="MDM upload pending"
+                    className={cn(
+                      "w-1.5 h-1.5 rounded-full",
+                      CATEGORY_DOT[category],
+                      isLive && "pulse-dot",
+                    )}
                   />
-                </TooltipTrigger>
-                <TooltipContent side="top" className="text-xs">
-                  MDM upload pending
-                </TooltipContent>
-              </Tooltip>
-            )}
+                  {statusLabel(programme)}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="text-xs">
+                {statusLabel(programme)}
+                {pendingMdm && " · MDM upload pending"}
+              </TooltipContent>
+            </Tooltip>
           </div>
 
-          <div className="flex items-center gap-1.5 flex-wrap">
+          <p className="text-[13px] text-muted-foreground truncate">
+            {[programme.role ? formatRole(programme.role) : "", segmentLabel].filter(Boolean).join(" · ") || "—"}
+          </p>
+
+          <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground/90">
+            <CalendarDays size={12} />
+            <span>{formatPeriod(programme.period)}</span>
+            {programme.geography === "kerala" && (
+              <span className="ml-2 inline-flex items-center px-1.5 h-[18px] rounded-md text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                Kerala
+              </span>
+            )}
+          </div>
+        </button>
+
+        {/* Right: channel pill + stat blocks + actions */}
+        <div className="flex items-stretch gap-4 shrink-0">
+          {/* Channel pill */}
+          <div className="hidden md:flex items-start pt-1">
             <span
-              className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold tracking-wide"
+              className="inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-semibold"
               style={{ backgroundColor: channel.bg, color: channel.fg }}
             >
               {channel.label}
             </span>
-            {programme.role && (
-              <Badge variant="outline" className="text-[10px] font-medium px-1.5 py-0 h-[18px]">
-                {formatRole(programme.role)}
-              </Badge>
-            )}
-            {segmentLabel && (
-              <Badge variant="secondary" className="text-[10px] font-medium px-1.5 py-0 h-[18px]">
-                {segmentLabel}
-              </Badge>
-            )}
-            {programme.geography === "kerala" && (
-              <span className="inline-flex items-center px-1.5 h-[18px] rounded-md text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
-                Kerala
-              </span>
-            )}
-            <span className="mx-0.5 text-border">·</span>
-            <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-              <CalendarDays size={11} />
-              {formatPeriod(programme.period)}
-            </span>
-          </div>
-        </button>
-
-        {/* Right meta: status + earning */}
-        <div className="flex items-center gap-4 shrink-0">
-          <div className="text-right hidden md:block">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-              Max / month
-            </p>
-            <p className="text-sm font-semibold text-foreground tabular-nums inline-flex items-center gap-1">
-              <TrendingUp size={12} className="text-primary" />
-              ₹{programme.maxMonthlyEarning.toLocaleString()}
-            </p>
           </div>
 
-          <span
-            className={cn(
-              "inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border capitalize",
-              statusPillClasses(programme.status),
-            )}
-          >
-            {programme.status}
-          </span>
+          {/* Vertical separator */}
+          <div className="hidden md:block w-px bg-border/70 self-stretch" />
 
-          {/* Hover actions */}
-          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <ProgrammeInlineStats stats={stats} />
+
+          {/* Eye — view details */}
+          <div className="flex items-center gap-0.5 self-center">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onClone}>
-                  <Copy size={13} />
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  onClick={onToggleExpand}
+                  aria-label={expanded ? "Collapse details" : "View details"}
+                >
+                  <Eye size={15} />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Clone</TooltipContent>
+              <TooltipContent side="top" className="text-xs">
+                {expanded ? "Hide details" : "View details"}
+              </TooltipContent>
             </Tooltip>
-          </div>
-
-          {/* Expand chevron */}
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-7 w-7"
-            onClick={onToggleExpand}
-            aria-label={expanded ? "Collapse" : "Expand"}
-          >
-            <ChevronDown
-              size={14}
-              className={cn("transition-transform", expanded && "rotate-180")}
-            />
-          </Button>
 
           {/* 3-dot menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button size="icon" variant="ghost" className="h-7 w-7">
-                <MoreHorizontal size={14} />
+              <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground">
+                <MoreHorizontal size={15} />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="text-xs">
@@ -723,6 +905,7 @@ function ProgrammeRow({
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+          </div>
 
           {/* Archive confirmation */}
           <AlertDialog open={confirmArchive} onOpenChange={setConfirmArchive}>
@@ -751,6 +934,75 @@ function ProgrammeRow({
 
       {expanded && <ProgrammeExpandedDetails programme={programme} onEdit={onEdit} canEdit={canEdit} />}
     </Card>
+  );
+}
+
+// Headline payout + attainment blocks shown on the right of each programme row.
+// Every figure comes from GET /v1/programs/analytics; with no record for this
+// programme both blocks read "Awaiting data" rather than showing a guess.
+function ProgrammeInlineStats({ stats }: { stats: ProgrammeQuickStats }) {
+  const hasData = !!stats;
+  const attainment = stats?.overallAttainmentPct ?? 0;
+  const delta = stats?.attainmentDelta ?? 0;
+
+  const attainmentTone = !hasData
+    ? "bg-muted/60 text-muted-foreground"
+    : attainment >= 100
+    ? "bg-emerald-50 text-emerald-900"
+    : attainment >= 80
+    ? "bg-amber-50 text-amber-900"
+    : "bg-rose-50 text-rose-900";
+
+  const items = [
+    {
+      label: "Total Payout",
+      value: hasData ? formatInr(Math.round(stats!.budgetUsed)) : "—",
+      sub: hasData
+        ? stats!.totalBudget > 0
+          ? `${Math.round(stats!.budgetUsedPct)}% of ${formatInr(Math.round(stats!.totalBudget))} budget`
+          : `Max ${formatInr(Math.round(stats!.maxMonthlyEarning))} / rep`
+        : "Awaiting data",
+      subTone: "text-teal-700/80",
+      tone: hasData ? "bg-teal-50 text-teal-900" : "bg-muted/60 text-muted-foreground",
+      tooltip: hasData
+        ? "Payout accrued so far this period, against the programme's total budget."
+        : "The incentive engine has no analytics for this programme yet.",
+    },
+    {
+      label: "Attainment",
+      value: hasData ? `${Math.round(attainment)}%` : "—",
+      sub: hasData
+        ? `${delta >= 0 ? "+" : ""}${Math.round(delta)}% vs target`
+        : "Awaiting data",
+      subTone: hasData
+        ? delta >= 0 ? "text-emerald-700/80" : "text-rose-700/80"
+        : "text-muted-foreground",
+      tone: attainmentTone,
+      tooltip: hasData
+        ? `Overall KPI attainment. ${stats!.engagedUsers} of ${stats!.totalUsers} users engaged.`
+        : "The incentive engine has no analytics for this programme yet.",
+    },
+  ];
+
+  return (
+    <div className="hidden lg:flex items-center gap-5 self-center">
+      {items.map((it) => (
+        <div key={it.label} className="flex flex-col gap-1 min-w-[150px]">
+          <p className="text-[11px] text-muted-foreground">{it.label}</p>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className={cn("flex items-baseline gap-2 px-3 py-1.5 rounded-md cursor-default", it.tone)}>
+                <span className="text-[17px] font-bold tabular-nums leading-none">{it.value}</span>
+                <span className={cn("text-[10px] font-medium", it.subTone)}>{it.sub}</span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="text-xs max-w-[220px]">
+              {it.tooltip}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -853,7 +1105,7 @@ function ProgrammeExpandedDetails({
       {!canEdit && (
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground bg-card border border-border rounded-md px-3 py-1.5">
           <Lock size={11} />
-          This programme is {programme.status} — editing is locked. You can view, clone, or act on the insights below.
+          This programme is {statusLabel(programme)} — editing is locked. You can view, clone, or act on the insights below.
         </div>
       )}
 
@@ -1100,66 +1352,3 @@ function EmptyState({ onCreateNew }: { onCreateNew: () => void }) {
   );
 }
 
-// ─── Status filter pills ────────────────────────────────────────────────────
-function StatusPillBar({
-  value,
-  onChange,
-  programmes,
-}: {
-  value: "all" | "active" | "draft" | "archived" | "inactive";
-  onChange: (v: "all" | "active" | "draft" | "archived" | "inactive") => void;
-  programmes: Programme[];
-}) {
-  const counts = useMemo(() => {
-    const c = { all: 0, active: 0, draft: 0, archived: 0, inactive: 0 };
-    programmes.forEach((p) => {
-      c.all += 1;
-      if (p.status === "active") c.active += 1;
-      else if (p.status === "draft") c.draft += 1;
-      else if (p.status === "archived" || p.status === "locked") c.archived += 1;
-      else if (p.status === "inactive") c.inactive += 1;
-    });
-    return c;
-  }, [programmes]);
-
-  const pills: Array<{ key: typeof value; label: string }> = [
-    { key: "all", label: "All" },
-    { key: "active", label: "Live" },
-    { key: "draft", label: "Draft" },
-    { key: "archived", label: "Ended" },
-    { key: "inactive", label: "Inactive" },
-  ];
-
-  return (
-    <div className="flex items-center gap-1.5 flex-wrap">
-      {pills.map((p) => {
-        const active = value === p.key;
-        return (
-          <button
-            key={p.key}
-            type="button"
-            onClick={() => onChange(p.key)}
-            className={cn(
-              "inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-xs font-medium border transition-colors",
-              active
-                ? "bg-primary text-primary-foreground border-primary"
-                : "bg-card text-foreground border-border hover:bg-muted/60",
-            )}
-          >
-            {p.label}
-            <span
-              className={cn(
-                "tabular-nums text-[10px] px-1.5 py-0.5 rounded-full",
-                active
-                  ? "bg-primary-foreground/20 text-primary-foreground"
-                  : "bg-muted text-muted-foreground",
-              )}
-            >
-              {counts[p.key]}
-            </span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}

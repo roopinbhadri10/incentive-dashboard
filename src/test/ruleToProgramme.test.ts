@@ -37,6 +37,18 @@ describe("ruleToProgramme", () => {
     expect(p.createdAt).toBe("2026-06-06T18:01:10.638");
   });
 
+  it('reads a published rule (status "APPROVED") as active, not draft', () => {
+    // Publishing POSTs status: "APPROVED"; the list must show it as live rather
+    // than falling through to the "draft" default.
+    expect(ruleToProgramme({ ...baseRule, status: "APPROVED" }).status).toBe("active");
+    // isActive: false still wins — an archived rule reads as archived.
+    expect(
+      ruleToProgramme({ ...baseRule, status: "APPROVED", isActive: false }).status,
+    ).toBe("inactive");
+    // An unrecognised status still defaults to draft.
+    expect(ruleToProgramme({ ...baseRule, status: "WOBBLE" }).status).toBe("draft");
+  });
+
   it("extracts the CCD/HCD division from the conditions-style criteria", () => {
     const p = ruleToProgramme({
       ...baseRule,

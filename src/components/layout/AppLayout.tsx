@@ -35,10 +35,10 @@ export function AppLayout() {
 
   return (
     <TourProvider onNavigate={navigateTo}>
-      <div className="flex h-screen overflow-hidden bg-background">
+      <div className="flex h-screen overflow-hidden app-canvas">
         <AppSidebar currentView={location.pathname} onNavigate={navigateTo} />
         <div className="flex-1 flex flex-col overflow-hidden">
-          <AppHeader />
+          <AppHeader currentView={location.pathname} onNavigate={navigateTo} />
           <main className="flex-1 overflow-hidden flex flex-col">
             <Outlet />
           </main>

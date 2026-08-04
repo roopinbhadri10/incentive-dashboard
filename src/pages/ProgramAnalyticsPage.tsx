@@ -82,15 +82,20 @@ const KPI_UNITS: Record<string, { target: string; actual: (v: number) => string 
 const STATUS_PILL: Record<Programme["status"], string> = {
   active: "bg-[hsl(var(--success))]/15 text-[hsl(var(--success))] border-[hsl(var(--success))]/30",
   draft: "bg-muted text-muted-foreground border-border",
-  locked: "bg-[hsl(var(--warning))]/15 text-[hsl(var(--warning))] border-[hsl(var(--warning))]/30",
+  locked: "bg-muted text-muted-foreground border-border",
   archived: "bg-muted text-muted-foreground border-border",
+  inactive: "bg-rose-50 text-rose-700 border-rose-200",
 };
 
+// Standardised campaign vocabulary: Active · Draft · Completed (locked/archived
+// both read as Completed). "Scheduled" is a list-level derived state and is not
+// surfaced on the single-programme analytics header.
 const STATUS_LABEL: Record<Programme["status"], string> = {
-  active: "Live",
+  active: "Active",
   draft: "Draft",
-  locked: "Locked",
-  archived: "Ended",
+  locked: "Completed",
+  archived: "Completed",
+  inactive: "Archived",
 };
 
 /* ─── synthetic analytics derivation ──────────────────────────────── */
@@ -321,7 +326,7 @@ export function ProgramAnalyticsPage({ programmeId, onBack }: Props) {
   const periodLabel = monthYear(programme.period.month, programme.period.year);
 
   return (
-    <div className="flex-1 overflow-y-auto bg-background">
+    <div className="flex-1 overflow-y-auto">
       <div className="max-w-[1400px] mx-auto px-6 py-6 space-y-6">
         {/* Header */}
         <header className="flex items-start justify-between gap-4 flex-wrap">

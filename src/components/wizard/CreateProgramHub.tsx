@@ -2,13 +2,25 @@ import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Copy, LayoutTemplate, FileSpreadsheet, Plus, ArrowLeft, ArrowRight, TrendingUp, Target, CheckCircle2, AlertTriangle, XCircle, ChevronDown } from "lucide-react";
+import { Copy, LayoutTemplate, FileSpreadsheet, ArrowLeft, ArrowRight, TrendingUp, Target, CheckCircle2, AlertTriangle, XCircle, ChevronDown } from "lucide-react";
 import { mockLivePlans, programTemplates, type IncentivePlan, type ProgramTemplate } from "@/data/mockData";
 import { cn } from "@/lib/utils";
+import { WizardAddButton } from "./ui/WizardAddButton";
 
 export type CreatePath = "ai" | "clone" | "template" | "blank";
 /** Seed object handed back with a path: a template (template tab) or a plan (clone tab). */
 export type CreatePathData = ProgramTemplate | IncentivePlan;
+
+// Standardised campaign vocabulary (Active · Scheduled · Draft · Completed).
+// A live plan reads as "Active"; completed/paused read as "Completed".
+function planStatusLabel(status: IncentivePlan["status"]): string {
+  switch (status) {
+    case "live": return "Active";
+    case "draft": return "Draft";
+    case "completed": return "Completed";
+    case "paused": return "Completed";
+  }
+}
 
 interface CreateProgramHubProps {
   onSelectPath: (path: CreatePath, data?: CreatePathData) => void;
@@ -36,14 +48,16 @@ export function CreateProgramHub({ onSelectPath, onBack, initialTab, initialClon
           </Button>
         </div>
 
-        <div className="text-center space-y-2">
-          <h1 className="text-2xl font-bold text-foreground">Create New Incentive Program</h1>
+        <div className="rounded-xl bg-card border border-border p-6 text-center space-y-2">
+          <h1 className="text-2xl font-semibold text-foreground">
+            Let's build something <span className="text-primary">remarkable</span>
+          </h1>
           <p className="text-sm text-muted-foreground">Choose how you'd like to get started</p>
         </div>
 
         {/* Tab switcher */}
         <div className="flex justify-center">
-          <div className="flex gap-1 bg-muted rounded-lg p-1">
+          <div className="flex gap-1 bg-muted border border-border rounded-lg p-1">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
@@ -122,13 +136,13 @@ export function CreateProgramHub({ onSelectPath, onBack, initialTab, initialClon
         )}
 
         {/* Blank option always visible at bottom */}
-        <div className="pt-2 border-t border-border">
-          <button
+        <div className="pt-2 border-t border-border flex justify-center">
+          <WizardAddButton
+            variant="outline"
             onClick={() => onSelectPath("blank")}
-            className="w-full flex items-center justify-center gap-2 py-3 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
-            <Plus size={14} /> Or start with a blank program
-          </button>
+            Start with a blank program
+          </WizardAddButton>
         </div>
       </div>
     </div>
@@ -162,7 +176,7 @@ function CloneTab({ onSelectPath, initialExpandedId }: { onSelectPath: CreatePro
                   <div className="flex items-center gap-2 mb-1">
                     <h3 className="text-sm font-semibold truncate">{plan.name}</h3>
                     <Badge variant="outline" className={cn("text-[10px] shrink-0", plan.status === "live" ? "bg-success/10 text-success" : "bg-info/10 text-info")}>
-                      {plan.status}
+                      {planStatusLabel(plan.status)}
                     </Badge>
                   </div>
                   {headline && (
@@ -196,9 +210,12 @@ function CloneTab({ onSelectPath, initialExpandedId }: { onSelectPath: CreatePro
                     );
                   })}
                 </div>
-                <Button size="sm" className="w-full gap-2 text-xs" onClick={() => onSelectPath("clone", plan)}>
-                  <Copy size={12} /> Clone this plan
-                </Button>
+                <WizardAddButton
+                  onClick={() => onSelectPath("clone", plan)}
+                  icon={<Copy size={12} />}
+                >
+                  Clone this plan
+                </WizardAddButton>
               </div>
             )}
           </Card>

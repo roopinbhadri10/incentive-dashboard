@@ -26,7 +26,7 @@ export function AudienceContextChip({ audience }: Props) {
   }
 
   return (
-    <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-primary/10 text-primary px-2.5 py-1 text-[11px] font-medium">
+    <div className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 text-primary px-2.5 py-1 text-[11px] font-medium">
       <Users size={11} />
       <span className="text-muted-foreground font-normal">Building for:</span>
       <span>{division}</span>

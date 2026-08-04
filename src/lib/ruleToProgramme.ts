@@ -27,14 +27,26 @@ export function getSourceRule(programme: Programme): RuleRecord | undefined {
 
 const STATUSES: ProgrammeStatus[] = ["draft", "active", "locked", "archived", "inactive"];
 
+/**
+ * Engine status strings that have no 1:1 programme status. Publishing sends
+ * `status: "APPROVED"`, which means the rule is live — so it reads as Active
+ * here (and the list derives "Scheduled" from a future start period).
+ */
+const STATUS_ALIASES: Record<string, ProgrammeStatus> = {
+  approved: "active",
+  published: "active",
+  expired: "archived",
+  completed: "archived",
+};
+
 function toStatus(raw: string | undefined, isActive: boolean | undefined): ProgrammeStatus {
   // isActive is the authoritative "turned off" flag, so it wins over the raw
   // status string — a rule can come back as status:"DRAFT" + isActive:false and
-  // must still surface under the Inactive filter, not Draft.
+  // must still surface under the Archived filter, not Draft.
   if (isActive === false) return "inactive";
   const s = (raw ?? "").toLowerCase();
   if ((STATUSES as string[]).includes(s)) return s as ProgrammeStatus;
-  return "draft";
+  return STATUS_ALIASES[s] ?? "draft";
 }
 
 /** Pull the CCD/HCD division out of any applicabilityCriteria shape, if present. */
@@ -47,9 +59,13 @@ function extractDivision(criteria: unknown): Channel | undefined {
         divisions?: unknown[];
       }
     | undefined;
-  // Grouped shape: division lives in outlet_filters (older rules: user_filters).
+  // Grouped shape: the division is written as `salesOrg` on user_filters (see
+  // buildRulePayloads). `outletDivision` / `division` are older field names kept
+  // for rules created before that — check all three.
   const groupRules = [...(c?.outlet_filters?.rules ?? []), ...(c?.user_filters?.rules ?? [])];
-  const fromGroup = groupRules.find((r) => r?.field === "outletDivision" || r?.field === "division")?.value;
+  const fromGroup = groupRules.find(
+    (r) => r?.field === "salesOrg" || r?.field === "outletDivision" || r?.field === "division",
+  )?.value;
   const fromGroupVal = Array.isArray(fromGroup) ? fromGroup[0] : fromGroup;
   const fromCondition = c?.conditions?.find((x) => x?.property === "division")?.values?.[0];
   const v = (fromGroupVal ?? fromCondition ?? c?.divisions?.[0]) as string | undefined;
@@ -79,6 +95,9 @@ export function ruleToProgramme(rule: RuleRecord): Programme {
     segment: "all",
     geography: "all-india",
     period: periodFromIso(rule.effectiveFrom),
+    programId: rule.programId,
+    effectiveFrom: rule.effectiveFrom,
+    effectiveTill: rule.effectiveTill,
     kpis: {},
     gates: {
       // Current rules carry gates under `gateConditions` (first % gate's threshold);

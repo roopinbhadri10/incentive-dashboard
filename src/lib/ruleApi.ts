@@ -7,6 +7,7 @@
 
 import type { RuleApiPayload } from "./rulePayload";
 import { getTenantId, getAuthorizationHeader } from "@/config/auth";
+import { ApiError } from "@/lib/apiError";
 
 const RULES_ENDPOINT = import.meta.env.VITE_RULES_ENDPOINT ?? "/incentive-api/v1/rules";
 
@@ -35,7 +36,7 @@ export async function submitRule(payload: RuleApiPayload): Promise<unknown> {
 
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(`Rule API responded ${res.status}${detail ? `: ${detail}` : ""}`);
+    throw new ApiError(res.status, detail, "Rule API");
   }
   return res.json().catch(() => ({}));
 }
@@ -66,7 +67,7 @@ export async function updateRule(id: string, payload: RuleApiPayload): Promise<u
 
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(`Rule API responded ${res.status}${detail ? `: ${detail}` : ""}`);
+    throw new ApiError(res.status, detail, "Rule API");
   }
   return res.json().catch(() => ({}));
 }
@@ -84,7 +85,7 @@ export async function archiveRule(id: string): Promise<void> {
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(`Rule API responded ${res.status}${detail ? `: ${detail}` : ""}`);
+    throw new ApiError(res.status, detail, "Rule API");
   }
 }
 
@@ -92,6 +93,8 @@ export async function archiveRule(id: string): Promise<void> {
 export interface RuleRecord {
   id?: string;
   ruleId?: string;
+  /** Groups the rules of one programme; joins onto GET /v1/programs/analytics. */
+  programId?: string;
   ruleName?: string;
   ruleCode?: string;
   ruleType?: string;
@@ -157,7 +160,7 @@ export async function fetchRules(): Promise<RuleRecord[]> {
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(`Rule API responded ${res.status}${detail ? `: ${detail}` : ""}`);
+    throw new ApiError(res.status, detail, "Rule API");
   }
   const data = await res.json();
   if (Array.isArray(data)) return data as RuleRecord[];

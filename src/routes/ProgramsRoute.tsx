@@ -1,14 +1,45 @@
-import { useNavigate } from "react-router-dom";
-import { ProgramsPage } from "@/pages/ProgramsPage";
+import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { ProgramsPage, type StatusFilter } from "@/pages/ProgramsPage";
 import { programmeToBuilder } from "@/components/clone/programmeToBuilder";
 import { getSourceRule } from "@/lib/ruleToProgramme";
 import { ruleToBuilder } from "@/lib/ruleToBuilder";
 import type { Programme } from "@/types/programme";
 import type { BuilderState, WizardPrefill } from "@/components/wizard/builderState";
+import { listDrafts, getDraft, deleteDraft, type WizardDraft } from "@/lib/wizardDraftStore";
+
+const STATUS_FILTERS: StatusFilter[] = [
+  "all",
+  "active",
+  "scheduled",
+  "draft",
+  "completed",
+  "inactive",
+];
 
 /** Programs list — the app's home route. Wires its callbacks to navigation. */
 export function ProgramsRoute() {
   const navigate = useNavigate();
+
+  // On /campaigns/:status the URL owns the status filter, so the sidebar
+  // highlight, the URL and the list's dropdown always agree. An unrecognised
+  // segment falls back to "all" rather than showing an empty list.
+  const { status } = useParams<{ status?: string }>();
+  const routeStatus: StatusFilter | undefined =
+    status === undefined
+      ? undefined
+      : STATUS_FILTERS.includes(status as StatusFilter)
+      ? (status as StatusFilter)
+      : "all";
+
+  // Wizard drafts live in localStorage; the store broadcasts on every write so
+  // the list stays current while this page is open (e.g. after a discard).
+  const [drafts, setDrafts] = useState<WizardDraft[]>(() => listDrafts());
+  useEffect(() => {
+    const refresh = () => setDrafts(listDrafts());
+    window.addEventListener("wizardDrafts:change", refresh);
+    return () => window.removeEventListener("wizardDrafts:change", refresh);
+  }, []);
 
   // Rebuild full wizard state from the program's source rule (which carries the
   // real division/channels/zones/period/KPI); fall back to the lossy Programme.
@@ -56,6 +87,31 @@ export function ProgramsRoute() {
         navigate(`/clone/quick-review?ids=${ids.map(encodeURIComponent).join(",")}`)
       }
       onViewAnalytics={(id) => navigate(`/programs/${encodeURIComponent(id)}/analytics`)}
+      drafts={drafts.map((d) => ({
+        id: d.id,
+        name: d.name,
+        atStep: d.atStep,
+        updatedAt: d.updatedAt,
+      }))}
+      onResumeDraft={(id) => {
+        const draft = getDraft(id);
+        if (!draft) return;
+        const prefill: WizardPrefill = {
+          type: "draft",
+          draftId: draft.id,
+          name: draft.name,
+          builder: draft.builder,
+          atStep: draft.atStep,
+        };
+        navigate("/create/wizard", { state: { prefill } });
+      }}
+      onDiscardDraft={(id) => deleteDraft(id)}
+      statusFilter={routeStatus}
+      onStatusFilterChange={
+        routeStatus === undefined
+          ? undefined
+          : (v) => navigate(`/campaigns/${v}`)
+      }
     />
   );
 }

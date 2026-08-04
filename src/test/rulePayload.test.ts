@@ -38,10 +38,41 @@ function sampleState(): BuilderState {
 }
 
 describe("buildRulePayloads", () => {
-  // The tenant in the payload body now comes from the parent-portal auth
-  // context (localStorage.accountId, populated by syncAuthFromCookies).
+  // The tenant in the payload body comes from the parent-portal auth context:
+  // the ACCOUNT_ID cookie, with localStorage.accountId as the fallback.
   beforeEach(() => {
     localStorage.setItem("accountId", "default");
+  });
+
+  it("takes tenantId from the ACCOUNT_ID cookie, ahead of localStorage", () => {
+    localStorage.setItem("accountId", "stale-from-localstorage");
+    document.cookie = "ACCOUNT_ID=Emami";
+    try {
+      expect(buildRulePayloads(sampleState())[0].tenantId).toBe("Emami");
+    } finally {
+      document.cookie = "ACCOUNT_ID=; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    }
+    // Cookie gone → falls back to the value captured at startup.
+    expect(buildRulePayloads(sampleState())[0].tenantId).toBe("stale-from-localstorage");
+  });
+
+  it("stamps one shared programId uuid across every rule of a programme", () => {
+    const twoKpis: BuilderState = {
+      ...sampleState(),
+      programKpis: [
+        { templateId: "nsv", instanceId: "k1", config: DEFAULT_NSV },
+        { templateId: "nsv", instanceId: "k2", config: DEFAULT_NSV },
+      ],
+    };
+    const rules = buildRulePayloads(twoKpis);
+    expect(rules).toHaveLength(2);
+    expect(rules[0].programId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    // Same programme → same id on both rules...
+    expect(rules[1].programId).toBe(rules[0].programId);
+    // ...a separate build → a distinct id.
+    expect(buildRulePayloads(twoKpis)[0].programId).not.toBe(rules[0].programId);
   });
 
   it("maps a single-KPI program onto one rule in the engine format", () => {
@@ -56,7 +87,7 @@ describe("buildRulePayloads", () => {
     expect(rule.effectiveFrom).toBe("2026-06-01");
     expect(rule.effectiveTill).toBe("2026-06-30");
     expect(rule.ruleCode).toBe("RULE-2026-06-01");
-    expect(rule.status).toBe("DRAFT");
+    expect(rule.status).toBe("APPROVED");
 
     // user_filters — who: the role (as its designation; with no role-designation
     // config loaded in tests, it falls back to the raw role name), the division
@@ -345,5 +376,57 @@ describe("buildRulePayloads", () => {
     ];
     const rules = buildRulePayloads(state);
     expect(rules.map((r) => r.ruleCode)).toEqual(["RULE-2026-06-01-1", "RULE-2026-06-01-2"]);
+  });
+});
+
+describe("earning basis → ruleDefinition.ruleMappings", () => {
+  beforeEach(() => {
+    localStorage.setItem("accountId", "default");
+  });
+
+  const ecoState = (config: Record<string, unknown>): BuilderState => ({
+    ...sampleState(),
+    programKpis: [{ templateId: "eco", instanceId: "k1", config }],
+  });
+
+  it("omits ruleMappings when the KPI pays on the user's own achievement", () => {
+    const rule = buildRulePayloads(
+      ecoState({ ...ecoBaseConfig(), slabs: ECO_SLABS, role: "mr" }),
+    )[0];
+    expect(rule.ruleDefinition.ruleMappings).toBeUndefined();
+  });
+
+  it("emits ruleMappings when the basis is the juniors' average earning", () => {
+    const rule = buildRulePayloads(
+      ecoState({ ...ecoBaseConfig(), slabs: ECO_SLABS, role: "aso_ase", rateMultiplier: 1 }),
+    )[0];
+    expect(rule.ruleDefinition.ruleMappings).toEqual([
+      { childKpiId: rule.ruleDefinition.kpiId, multiplier: 1 },
+    ]);
+  });
+
+  it("carries the multiplier the user typed", () => {
+    const rule = buildRulePayloads(
+      ecoState({ ...ecoBaseConfig(), slabs: ECO_SLABS, role: "aso_ase", rateMultiplier: 3 }),
+    )[0];
+    expect(rule.ruleDefinition.ruleMappings?.[0].multiplier).toBe(3);
+  });
+
+  it("falls back to the multiplier the KPI step displays by default", () => {
+    // The input renders `rateMultiplier ?? 3`, so an untouched field must still
+    // send 3 — otherwise the payload disagrees with what the user saw.
+    const rule = buildRulePayloads(
+      ecoState({ ...ecoBaseConfig(), slabs: ECO_SLABS, role: "aso_ase" }),
+    )[0];
+    expect(rule.ruleDefinition.ruleMappings?.[0].multiplier).toBe(3);
+  });
+
+  it("leaves KPIs that have no earning-basis choice untouched", () => {
+    // nsv isn't role-aware, so a stray role value must not trigger a mapping.
+    const state = sampleState();
+    state.programKpis = [
+      { templateId: "nsv", instanceId: "k1", config: { ...DEFAULT_NSV, role: "aso_ase" } },
+    ];
+    expect(buildRulePayloads(state)[0].ruleDefinition.ruleMappings).toBeUndefined();
   });
 });
