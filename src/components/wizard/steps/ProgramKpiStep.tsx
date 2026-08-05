@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -99,8 +100,8 @@ function EarningBasisSelector({
       {current === "juniors" && templateId !== "qnsv" && (
         <div className="flex items-center gap-2 pt-1">
           <Label className="text-[11px] text-muted-foreground">Multiplier</Label>
-          <Input type="number" value={cfg.rateMultiplier ?? 3}
-            onChange={(e) => onChange({ ...cfg, rateMultiplier: Number(e.target.value) })}
+          <NumberInput value={cfg.rateMultiplier ?? 3}
+            onValueChange={(rateMultiplier) => onChange({ ...cfg, rateMultiplier })}
             className="h-8 w-20" />
           <span className="text-[11px] text-muted-foreground flex items-center gap-1">
             <Info size={11} /> Earning = multiplier × Avg MR earning under this manager.

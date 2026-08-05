@@ -3,6 +3,7 @@ import { Plug, Check, Gift, Landmark, Wallet as WalletIcon, Ticket, Send, Rotate
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import {
   Select,
   SelectContent,
@@ -225,11 +226,12 @@ export function RewardsPanel({
 
                 <div>
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Max non-cash %</div>
-                  <Input
-                    type="number"
+                  <NumberInput
                     value={pol.maxNonCashPct}
-                    onChange={(e) =>
-                      onUpdatePolicy(pol.programme, { maxNonCashPct: Number(e.target.value) })
+                    min={0}
+                    max={100}
+                    onValueChange={(maxNonCashPct) =>
+                      onUpdatePolicy(pol.programme, { maxNonCashPct })
                     }
                     className="mt-1 h-8 w-24 text-xs tabular-nums"
                   />
@@ -237,10 +239,11 @@ export function RewardsPanel({
 
                 <div>
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Min bank %</div>
-                  <Input
-                    type="number"
+                  <NumberInput
                     value={pol.minBankPct}
-                    onChange={(e) => onUpdatePolicy(pol.programme, { minBankPct: Number(e.target.value) })}
+                    min={0}
+                    max={100}
+                    onValueChange={(minBankPct) => onUpdatePolicy(pol.programme, { minBankPct })}
                     className="mt-1 h-8 w-24 text-xs tabular-nums"
                   />
                 </div>

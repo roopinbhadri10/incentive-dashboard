@@ -93,6 +93,7 @@ const TEMPLATE_BY_KPI_TYPE: Record<string, KpiTemplateId> = {
   COLLECTION: "collection",
   PRODUCTIVITY: "pcc",
   MUST_SELL_SKU: "must_sell_sku",
+  SUB_DB_BILLING: "sub_db_billing",
   AI_RECOMMENDED_ORDER: "ai_recommended_order",
 };
 
@@ -352,6 +353,13 @@ function configFromTiers(
     }
   }
 
+  // Binary threshold (sub_db_billing) — the forward emits a lone tier whose `minVal`
+  // is the threshold % and whose payout is the flat amount earned at/above it.
+  if ("thresholdPct" in base && "payout" in base) {
+    const t = tiers.find((x) => (x.payout ?? 0) > 0) ?? tiers[tiers.length - 1];
+    if (t) return withExtras({ ...base, thresholdPct: t.minVal, payout: t.payout });
+  }
+
   // Lines (tlsd / dbb) — min..max lines at a per-line rate; the middle tier holds
   // [minLines, maxLines] and its payout IS the ₹-per-line rate the user typed (the
   // forward stores the rate directly, not the computed top payout).
@@ -433,5 +441,24 @@ export function ruleToBuilder(rule: RuleRecord): BuilderState {
         ...(ui.groupIds ? { groupIds: ui.groupIds } : {}),
       },
     ],
+  };
+}
+
+/**
+ * Rebuild the wizard state for a whole programme from its rules — the engine keeps
+ * one rule per KPI, so editing or cloning a programme has to read all of them or
+ * it silently drops KPIs.
+ *
+ * The programme-level sections (basics, audience, channels, gates) are identical
+ * across the group, so they come from the first rule; each rule then contributes
+ * its own KPI, in the order the engine returned them.
+ */
+export function rulesToBuilder(rules: RuleRecord[]): BuilderState {
+  const [primary, ...rest] = rules;
+  const base = ruleToBuilder(primary);
+  if (!rest.length) return base;
+  return {
+    ...base,
+    programKpis: [...base.programKpis, ...rest.flatMap((r) => ruleToBuilder(r).programKpis)],
   };
 }

@@ -13,11 +13,10 @@ import {
   CalendarDays,
   Eye,
   TrendingUp,
-  Lightbulb,
   AlertCircle,
   ArrowUpDown,
   CheckCircle2,
-  AlertTriangle,
+  Info,
   TrendingDown,
   Lock,
   BarChart3,
@@ -49,7 +48,8 @@ import {
   fetchRolePayloadValues,
   fetchRoleDesignations,
 } from "@/lib/saleshubApi";
-import { ruleToProgramme } from "@/lib/ruleToProgramme";
+import { rulesToProgrammes } from "@/lib/ruleToProgramme";
+import { getKpiCatalog } from "@/components/kpi-library/schema/kpiCatalog";
 import type {
   Programme,
   Channel,
@@ -330,7 +330,7 @@ export function ProgramsPage({
         fetchRolePayloadValues().catch(() => { /* non-fatal */ }),
         fetchRoleDesignations().catch(() => { /* non-fatal */ }),
       ]);
-      return rules.map(ruleToProgramme);
+      return rulesToProgrammes(rules);
     },
   });
 
@@ -348,7 +348,12 @@ export function ProgramsPage({
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const archiveMutation = useMutation({
-    mutationFn: ({ id }: { id: string; name: string }) => archiveRule(id),
+    // A programme is one rule per KPI in the engine, so archiving it means ending
+    // every one of them — archiving only the row's lead rule would leave the rest
+    // live and the programme still listed.
+    mutationFn: async ({ id, ruleIds }: { id: string; name: string; ruleIds?: string[] }) => {
+      for (const ruleId of ruleIds?.length ? ruleIds : [id]) await archiveRule(ruleId);
+    },
     onSuccess: (_data, { name }) => {
       queryClient.invalidateQueries({ queryKey: ["rules"] });
       toast({
@@ -660,7 +665,7 @@ export function ProgramsPage({
                     onEdit={() => onOpenProgram(p)}
                     onClone={() => onCloneProgram(p)}
                     onViewAnalytics={onViewAnalytics ? () => onViewAnalytics(p.id) : undefined}
-                    onArchive={() => archiveMutation.mutate({ id: p.id, name: p.name })}
+                    onArchive={() => archiveMutation.mutate({ id: p.id, name: p.name, ruleIds: p.ruleIds })}
                     isArchiving={archiveMutation.isPending && archiveMutation.variables?.id === p.id}
                     analytics={p.programId ? analyticsByProgram.get(p.programId) : undefined}
                   />
@@ -746,6 +751,10 @@ function ProgrammeRow({
   const channel = CHANNEL_STYLE[programme.channel];
   const segmentLabel = formatSegment(programme);
   const pendingMdm = hasPendingMdmUpload(programme);
+  // Engine programmes carry one rule per KPI; demo ones use the legacy kpis map.
+  const kpiCount =
+    programme.kpiSummaries?.length ??
+    Object.values(programme.kpis).filter((cfg) => cfg?.enabled).length;
   const canEdit = programme.status === "draft";
   // Drafts and live programmes can be ended; already-archived ones can't.
   const canArchive = programme.status === "draft" || programme.status === "active";
@@ -821,6 +830,13 @@ function ProgrammeRow({
           <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground/90">
             <CalendarDays size={12} />
             <span>{formatPeriod(programme.period)}</span>
+            {/* One row per programme — say how many KPIs it aggregates, and their
+                combined max payout. */}
+            {kpiCount > 0 && (
+              <span>
+                · {kpiCount} {kpiCount === 1 ? "KPI" : "KPIs"} · {formatInr(programme.maxMonthlyEarning)} max
+              </span>
+            )}
             {programme.geography === "kerala" && (
               <span className="ml-2 inline-flex items-center px-1.5 h-[18px] rounded-md text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
                 Kerala
@@ -932,7 +948,9 @@ function ProgrammeRow({
         </div>
       </div>
 
-      {expanded && <ProgrammeExpandedDetails programme={programme} onEdit={onEdit} canEdit={canEdit} />}
+      {expanded && (
+        <ProgrammeExpandedDetails programme={programme} stats={stats} onEdit={onEdit} canEdit={canEdit} />
+      )}
     </Card>
   );
 }
@@ -1022,85 +1040,115 @@ const KPI_LABELS: Record<string, string> = {
   L_quarterly: "Quarterly NSV",
 };
 
-// Deterministic pseudo-random based on string id — keeps mock attainment stable per programme
-function hashSeed(s: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return Math.abs(h);
-}
-function mockAttainment(programmeId: string, kpiKey: string): number {
-  const n = hashSeed(programmeId + kpiKey);
-  // Range 45 – 118
-  return 45 + (n % 74);
-}
-
-const DONUT_PALETTE = [
-  "hsl(174, 100%, 32%)", // primary teal
-  "hsl(210, 70%, 55%)",
-  "hsl(280, 50%, 58%)",
-  "hsl(30, 85%, 55%)",
-  "hsl(350, 65%, 58%)",
-  "hsl(140, 55%, 45%)",
-  "hsl(45, 90%, 50%)",
-  "hsl(255, 60%, 60%)",
-  "hsl(15, 75%, 55%)",
-  "hsl(195, 65%, 50%)",
-  "hsl(320, 55%, 55%)",
-  "hsl(95, 50%, 45%)",
+// Teal tint ramp for the KPI bars/donut — darkest for the strongest performer,
+// lightening down the ranking, so the chart reads as one system.
+const KPI_TINTS = [
+  "hsl(174 100% 24%)",
+  "hsl(174 90% 30%)",
+  "hsl(174 75% 38%)",
+  "hsl(174 60% 48%)",
+  "hsl(174 50% 60%)",
+  "hsl(174 45% 72%)",
 ];
 
-function suggestionFor(label: string, attainment: number): string {
-  if (attainment >= 100) return "Exceeding target — protect this momentum.";
-  if (attainment >= 90) return "On track — keep current cadence.";
-  if (attainment >= 70) return `Push ${label} with a targeted nudge to the bottom-quartile reps.`;
-  return `${label} is critically low — review slab thresholds or run a focused 7-day sprint.`;
+/** Tint for the engine's per-KPI status tag. */
+const STATUS_VAR: Record<string, string> = {
+  ON_TRACK: "var(--status-ok)",
+  WATCH: "var(--status-watch)",
+  AT_RISK: "var(--status-risk)",
+};
+
+/** Band for the programme's overall attainment — the one figure with no tag. */
+function overallTone(attainment: number): string {
+  if (attainment >= 90) return "var(--status-ok)";
+  if (attainment >= 70) return "var(--status-watch)";
+  return "var(--status-risk)";
+}
+
+/**
+ * Display name for an engine KPI code (`TARGET_VS_ACHIEVEMENT`). Resolved against
+ * the KPI catalog so the label matches the builder ("Net Sales Value"); codes with
+ * no catalog KPI — engine-only metrics like ATTENDANCE — are title-cased.
+ */
+function kpiLabelForCode(code: string): string {
+  const entry = Object.values(getKpiCatalog().entries).find(
+    (e) => e.meta.baseKpiName === code || e.meta.kpiCode === code,
+  );
+  if (entry) return entry.meta.name;
+  return code
+    .toLowerCase()
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+/** The catalog KPI id an engine code maps to, when there is one. */
+function templateIdForCode(code: string): string | undefined {
+  return Object.values(getKpiCatalog().entries).find(
+    (e) => e.meta.baseKpiName === code || e.meta.kpiCode === code,
+  )?.meta.id;
 }
 
 function ProgrammeExpandedDetails({
   programme,
+  stats,
   onEdit,
   canEdit,
 }: {
   programme: Programme;
+  /** This programme's record from GET /v1/programs/analytics, if any. */
+  stats: ProgrammeQuickStats;
   onEdit: () => void;
   canEdit: boolean;
 }) {
-  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+  // Hover is keyed by KPI so the bar list and the donut highlight together.
+  const [hoveredKpi, setHoveredKpi] = useState<string | null>(null);
 
-  const enabledKpis = Object.entries(programme.kpis).filter(
-    ([, cfg]) => cfg?.enabled,
+  // Every figure in this panel comes from GET /v1/programs/analytics. Nothing is
+  // derived locally: with no record (or no KPI breakdown) for this programme the
+  // tiles read "Awaiting data" rather than showing a guess.
+  const hasStats = !!stats;
+  const perf = stats?.kpiPerformanceList ?? [];
+  const overall = Math.round(stats?.overallAttainmentPct ?? 0);
+  // The engine reports the programme's max alongside the payout it projects from it;
+  // keep them paired so the ratio on the tile matches the attainment it quotes. With
+  // no record, fall back to the max summed from the programme's own rules.
+  const maxEarning = hasStats ? stats!.maxMonthlyEarning : programme.maxMonthlyEarning;
+
+  // Each KPI's configured max, from the rules behind the row — the analytics record
+  // carries a programme-level max only, so this is what fills in the per-KPI tooltip.
+  const maxByTemplate = new Map(
+    (programme.kpiSummaries ?? [])
+      .filter((k) => k.templateId)
+      .map((k) => [k.templateId!, k.maxEarning] as const),
   );
 
-  const kpiPerf = enabledKpis.map(([key], idx) => ({
-    key,
-    label: KPI_LABELS[key] ?? key,
-    attainment: mockAttainment(programme.id, key),
-    color: DONUT_PALETTE[idx % DONUT_PALETTE.length],
-  }));
+  // The programme's KPIs as configured (names + max from its rules), used when the
+  // engine has no attainment for them yet. Demo programmes use the legacy map.
+  const configuredKpis: Array<{ key: string; label: string; maxEarning?: number }> =
+    programme.kpiSummaries?.length
+      ? programme.kpiSummaries.map((k) => ({
+          key: k.ruleId || k.name,
+          label: k.name,
+          maxEarning: k.maxEarning,
+        }))
+      : Object.entries(programme.kpis)
+          .filter(([, cfg]) => cfg?.enabled)
+          .map(([key]) => ({ key, label: KPI_LABELS[key] ?? key }));
 
-  const overall = kpiPerf.length
-    ? Math.round(kpiPerf.reduce((s, k) => s + k.attainment, 0) / kpiPerf.length)
-    : 0;
-  const estPayout = Math.round(programme.maxMonthlyEarning * (overall / 100));
-  const underperformers = kpiPerf
-    .filter((k) => k.attainment < 70)
-    .sort((a, b) => a.attainment - b.attainment);
-  const topPerformer = kpiPerf.slice().sort((a, b) => b.attainment - a.attainment)[0];
-
-  // Donut geometry — equal segments, tinted by attainment
-  const size = 168;
-  const stroke = 22;
+  // Gauge geometry
+  const size = 150;
+  const stroke = 20;
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
-  const segPct = kpiPerf.length ? 1 / kpiPerf.length : 0;
-  const gapPx = 2;
-  const segLen = Math.max(0, segPct * circumference - gapPx);
+
+  /** A tile's value + sub-line, or the awaiting-data placeholder. */
+  const tile = (value: string, sub?: string) =>
+    hasStats ? { value, sub } : { value: "—", sub: "Awaiting data" };
 
   return (
-    <div className="border-t border-border bg-muted/20 px-4 py-4 space-y-4">
+    <div className="border-t border-border bg-muted/20 px-4 py-3 space-y-3">
       {/* Lock notice for non-draft programmes */}
       {!canEdit && (
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground bg-card border border-border rounded-md px-3 py-1.5">
@@ -1109,222 +1157,374 @@ function ProgrammeExpandedDetails({
         </div>
       )}
 
-      {/* Stat strip */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <StatTile
-          label="Overall attainment"
-          value={`${overall}%`}
-          accent={overall >= 90 ? "good" : overall >= 70 ? "warn" : "bad"}
-          icon={
-            overall >= 90 ? (
-              <CheckCircle2 size={14} />
-            ) : overall >= 70 ? (
-              <TrendingUp size={14} />
-            ) : (
-              <TrendingDown size={14} />
-            )
-          }
-        />
-        <StatTile
-          label="Estimated payout"
-          value={`₹${estPayout.toLocaleString("en-IN")}`}
-          sub={`of ₹${programme.maxMonthlyEarning.toLocaleString("en-IN")} max`}
-        />
-        <StatTile
-          label="KPIs on track"
-          value={`${kpiPerf.length - underperformers.length}/${kpiPerf.length}`}
-          sub={
-            underperformers.length
-              ? `${underperformers.length} need attention`
-              : "All performing"
-          }
-          accent={underperformers.length ? "warn" : "good"}
-        />
-      </div>
-
-      {/* Donut + legend */}
-      <div className="rounded-md border border-border bg-card px-4 py-4">
-        <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold mb-3">
-          KPI-level attainment
-        </div>
-        {kpiPerf.length === 0 ? (
-          <div className="text-xs text-muted-foreground py-3">
-            No KPIs enabled for this programme.
+      {/* Unified metric strip — headline numbers + programme meta in one card */}
+      {(() => {
+        const attainmentTile = tile(`${overall}%`);
+        const payoutTile = tile(
+          `₹${Math.round(stats?.estimatedPayout ?? 0).toLocaleString("en-IN")}`,
+          `of ₹${Math.round(maxEarning).toLocaleString("en-IN")} max`,
+        );
+        const kpiTile = tile(
+          `${stats?.kpisOnTrackCount ?? 0}/${stats?.kpisTotalCount ?? 0}`,
+          // The engine writes this sub-label itself ("1 need attention" / "Awaiting data").
+          stats?.kpiTrackSublabel,
+        );
+        return (
+          <div className="rounded-md border border-border bg-card grid grid-cols-2 md:grid-cols-5 divide-y md:divide-y-0 md:divide-x divide-border overflow-hidden">
+            <div
+              className="px-4 py-2.5"
+              style={hasStats ? { boxShadow: `inset 2px 0 0 hsl(${overallTone(overall)})` } : undefined}
+            >
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Overall attainment</div>
+              <div className="mt-0.5 text-xl font-semibold tabular-nums text-foreground flex items-center gap-1.5">
+                {attainmentTile.value}
+                {hasStats &&
+                  (overall >= 90 ? (
+                    <CheckCircle2 size={14} className="text-muted-foreground" />
+                  ) : overall >= 70 ? (
+                    <TrendingUp size={14} className="text-muted-foreground" />
+                  ) : (
+                    <TrendingDown size={14} className="text-muted-foreground" />
+                  ))}
+              </div>
+              {attainmentTile.sub && (
+                <div className="text-[10px] text-muted-foreground">{attainmentTile.sub}</div>
+              )}
+            </div>
+            <div className="px-4 py-2.5">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Estimated payout</div>
+              <div className="mt-0.5 text-xl font-semibold tabular-nums text-foreground">{payoutTile.value}</div>
+              {payoutTile.sub && <div className="text-[10px] text-muted-foreground">{payoutTile.sub}</div>}
+            </div>
+            <div className="px-4 py-2.5">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">KPIs on track</div>
+              <div className="mt-0.5 text-xl font-semibold tabular-nums text-foreground">
+                {hasStats ? (
+                  <>
+                    {stats!.kpisOnTrackCount}
+                    <span className="text-muted-foreground/50 font-light mx-0.5">/</span>
+                    {stats!.kpisTotalCount}
+                  </>
+                ) : (
+                  "—"
+                )}
+              </div>
+              {kpiTile.sub && <div className="text-[10px] text-muted-foreground">{kpiTile.sub}</div>}
+            </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="px-4 py-2.5 cursor-help hover:bg-muted/20 transition-colors">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Gates</div>
+                  <div className="mt-0.5 text-xl font-semibold tabular-nums text-foreground">
+                    {hasStats ? stats!.gatesCount : "—"}
+                  </div>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs">
+                <div className="text-[11px] font-semibold mb-1.5">Active gate conditions</div>
+                {(() => {
+                  // The count comes from the engine; the breakdown is what the
+                  // programme's own rules carry.
+                  const g = programme.gates;
+                  const items: string[] = [];
+                  if (g.nsvMinPct > 0) items.push(`NSV min attainment: ${g.nsvMinPct}%`);
+                  if (g.gtCollectionMinPct && g.gtCollectionMinPct > 0) items.push(`GT collection min: ${g.gtCollectionMinPct}%`);
+                  if (g.cftUrbanHrs > 0) items.push(`CFT urban hrs: ${g.cftUrbanHrs}h`);
+                  if (g.cftRuralHrs > 0) items.push(`CFT rural hrs: ${g.cftRuralHrs}h`);
+                  if (g.cftMinWorkingDays > 0) items.push(`Min working days: ${g.cftMinWorkingDays}`);
+                  if (g.cftPenaltyPct > 0) items.push(`CFT penalty: ${g.cftPenaltyPct}%`);
+                  if (g.ecoZeroNetValueExcluded) items.push("Zero-net-value ECO excluded");
+                  if (g.ecoDoubleCountsSameDayBilling) items.push("Same-day billing double-counts");
+                  if (g.partialMonthProRata) items.push("Partial-month pro-rata payout");
+                  return items.length ? (
+                    <ul className="space-y-1 text-[11px] text-muted-foreground list-disc list-inside">
+                      {items.map((it) => <li key={it}>{it}</li>)}
+                    </ul>
+                  ) : (
+                    <div className="text-[11px] text-muted-foreground">No gate conditions configured.</div>
+                  );
+                })()}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="px-4 py-2.5 cursor-help hover:bg-muted/20 transition-colors">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Roles covered</div>
+                  <div className="mt-0.5 text-xl font-semibold tabular-nums text-foreground">
+                    {hasStats ? stats!.rolesCoveredCount : "—"}
+                  </div>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs">
+                <div className="text-[11px] font-semibold mb-1.5">Roles covered</div>
+                <ul className="space-y-1 text-[11px] text-muted-foreground list-disc list-inside">
+                  <li>{programme.role ? formatRole(programme.role) : "—"}</li>
+                </ul>
+              </TooltipContent>
+            </Tooltip>
           </div>
-        ) : (
-          <div className="flex flex-col md:flex-row items-center md:items-start gap-6">
-            <div className="relative shrink-0" style={{ width: size, height: size }}>
-              <svg width={size} height={size} className="-rotate-90">
-                <circle
-                  cx={size / 2}
-                  cy={size / 2}
-                  r={radius}
-                  fill="none"
-                  stroke="hsl(var(--muted))"
-                  strokeWidth={stroke}
-                />
-                {kpiPerf.map((k, idx) => {
-                  const offset = -idx * segPct * circumference;
+        );
+      })()}
+
+      {/* KPI performance bars + attainment donut — engine attainment per KPI */}
+      {(() => {
+        // No breakdown from the engine yet: list the KPIs the programme actually has
+        // (from its rules) with their configured max, and say the rest is pending —
+        // never fill the chart with numbers the engine hasn't reported.
+        if (perf.length === 0) {
+          return (
+            <div className="rounded-2xl bg-card border border-border/60 shadow-sm px-5 py-4">
+              <h4 className="text-sm font-semibold text-foreground">KPI-level performance</h4>
+              {configuredKpis.length === 0 ? (
+                <p className="text-xs text-muted-foreground mt-2">No KPIs on this programme.</p>
+              ) : (
+                <>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    Awaiting attainment data from the incentive engine.
+                  </p>
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5">
+                    {configuredKpis.map((k) => (
+                      <div key={k.key} className="flex items-center gap-2 text-[12px]">
+                        <span className="flex-1 truncate text-foreground/80">{k.label}</span>
+                        {k.maxEarning != null && (
+                          <span className="tabular-nums text-muted-foreground">
+                            {formatInr(k.maxEarning)} max
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        }
+
+        // Ranked strongest → weakest: drives both the tint ramp and the bar order.
+        const ranked = perf
+          .slice()
+          .sort((a, b) => b.attainmentPct - a.attainmentPct)
+          .map((k) => {
+            const templateId = templateIdForCode(k.kpiKey);
+            return {
+              key: k.kpiKey,
+              label: kpiLabelForCode(k.kpiName || k.kpiKey),
+              attainment: Math.round(k.attainmentPct),
+              barWidthPct: k.barWidthPct,
+              arcSharePct: k.arcSharePct,
+              status: k.statusLabel,
+              cssVar: STATUS_VAR[k.statusTag] ?? "var(--status-watch)",
+              projectedPayout: k.projectedPayout,
+              maxEarning: templateId ? maxByTemplate.get(templateId) : undefined,
+            };
+          });
+        const colorOf = (key: string) =>
+          KPI_TINTS[Math.min(KPI_TINTS.length - 1, ranked.findIndex((r) => r.key === key))];
+
+        // ── Donut: the coloured arc totals overall attainment, split by the shares
+        //    the engine sends (normalised, so a partial set still fills correctly). ──
+        const shareSum = ranked.reduce((s, r) => s + r.arcSharePct, 0);
+        const arcTotal = (Math.min(100, overall) / 100) * circumference;
+        const gap = ranked.length > 1 ? 6 : 0;
+        let cursor = 0;
+        const segments = ranked.map((r) => {
+          const share = shareSum > 0 ? r.arcSharePct / shareSum : 0;
+          const len = share * arcTotal;
+          const seg = {
+            ...r,
+            color: colorOf(r.key),
+            dash: `${Math.max(1, len - gap)} ${circumference}`,
+            offset: -cursor,
+            share: Math.round(r.arcSharePct),
+          };
+          cursor += len;
+          return seg;
+        });
+
+        return (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
+            {/* Left card — KPI-level performance (horizontal bars) */}
+            <div className="rounded-2xl bg-card border border-border/60 shadow-sm px-5 py-4 flex flex-col">
+              <div className="flex items-center gap-1.5">
+                <h4 className="text-sm font-semibold text-foreground">KPI-level performance</h4>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="text-muted-foreground/70 cursor-help">
+                      <Info size={13} />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs max-w-[220px]">
+                    Attainment the incentive engine reports on each KPI this period.
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+
+              <div className="flex-1 flex flex-col justify-center gap-2.5 py-3">
+                {ranked.map((k) => {
+                  const dim = hoveredKpi !== null && hoveredKpi !== k.key;
+                  const active = hoveredKpi === k.key;
                   return (
+                    <Tooltip key={k.key}>
+                      <TooltipTrigger asChild>
+                        <div
+                          onMouseEnter={() => setHoveredKpi(k.key)}
+                          onMouseLeave={() => setHoveredKpi(null)}
+                          className={cn(
+                            "flex items-center gap-3 cursor-default rounded-lg -mx-2 px-2 py-1 transition-all duration-200",
+                            active && "bg-muted/50",
+                            dim && "opacity-35",
+                          )}
+                        >
+                          <span className="w-[30%] shrink-0 text-[13px] text-foreground/80 truncate">
+                            {k.label}
+                          </span>
+                          {/* Track, so a 0% KPI reads as an empty bar rather than a stub. */}
+                          <div className="flex-1 min-w-0 h-3.5 rounded-full bg-muted/60">
+                            <div
+                              className="h-3.5 rounded-full transition-all duration-200"
+                              style={{
+                                // Width comes from the engine (barWidthPct), not rescaled here.
+                                width: `${k.barWidthPct > 0 ? Math.max(4, Math.min(100, k.barWidthPct)) : 0}%`,
+                                backgroundColor: colorOf(k.key),
+                                boxShadow: active
+                                  ? `0 0 0 2px hsl(var(--background)), 0 0 0 3.5px ${colorOf(k.key)}`
+                                  : undefined,
+                              }}
+                            />
+                          </div>
+                          <span className="w-11 text-right text-[13px] font-medium text-foreground tabular-nums">
+                            {k.attainment}%
+                          </span>
+                          <span
+                            className="shrink-0 text-[10px] font-medium px-2 py-0.5 rounded-full border whitespace-nowrap"
+                            style={{
+                              color: `hsl(${k.cssVar})`,
+                              borderColor: `hsl(${k.cssVar} / 0.35)`,
+                              backgroundColor: `hsl(${k.cssVar} / 0.08)`,
+                            }}
+                          >
+                            {k.status}
+                          </span>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-xs">
+                        {k.status} · projected ₹{Math.round(k.projectedPayout).toLocaleString("en-IN")}
+                        {k.maxEarning != null && ` of ₹${k.maxEarning.toLocaleString("en-IN")} max`}
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                })}
+              </div>
+
+              <div className="pt-3 border-t border-border/60 flex items-center justify-between text-[11px]">
+                <span className="text-muted-foreground">Overall projected payout</span>
+                <span className="font-semibold text-foreground tabular-nums">
+                  ₹{Math.round(stats?.estimatedPayout ?? 0).toLocaleString("en-IN")}{" "}
+                  <span className="text-muted-foreground font-normal">
+                    / ₹{Math.round(maxEarning).toLocaleString("en-IN")}
+                  </span>
+                </span>
+              </div>
+            </div>
+
+            {/* Right card — KPI-level attainment (donut) */}
+            <div className="rounded-2xl bg-card border border-border/60 shadow-sm px-5 py-4 flex flex-col">
+              <div className="flex items-center gap-1.5">
+                <h4 className="text-sm font-semibold text-foreground">KPI-level attainment</h4>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="text-muted-foreground/70 cursor-help">
+                      <Info size={13} />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs max-w-[240px]">
+                    The filled arc equals overall attainment ({overall}%), split by each KPI's share.
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+
+              <div className="flex-1 flex items-center gap-5 py-2">
+                <div className="relative shrink-0" style={{ width: size, height: size }}>
+                  <svg width={size} height={size} className="-rotate-90">
                     <circle
-                      key={k.key}
                       cx={size / 2}
                       cy={size / 2}
                       r={radius}
                       fill="none"
-                      stroke={k.color}
+                      stroke="hsl(var(--muted))"
                       strokeWidth={stroke}
-                      strokeDasharray={`${segLen} ${circumference - segLen}`}
-                      strokeDashoffset={offset}
-                      strokeLinecap="butt"
-                      pointerEvents="stroke"
-                      opacity={hoveredIdx !== null && hoveredIdx !== idx ? 0.3 : 1}
-                      className="cursor-pointer transition-opacity"
-                      onMouseEnter={() => setHoveredIdx(idx)}
-                      onMouseLeave={() => setHoveredIdx(null)}
                     />
-                  );
-                })}
-              </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                {hoveredIdx === null ? (
-                  <>
-                    <span className="text-2xl font-bold text-foreground tabular-nums">{overall}%</span>
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Overall</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="text-2xl font-bold text-foreground tabular-nums">
-                      {kpiPerf[hoveredIdx].attainment}%
-                    </span>
-                    <span className="text-[10px] text-muted-foreground text-center px-2 leading-tight">
-                      {kpiPerf[hoveredIdx].label}
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
+                    {segments.map((s) => (
+                      <circle
+                        key={s.key}
+                        cx={size / 2}
+                        cy={size / 2}
+                        r={radius}
+                        fill="none"
+                        stroke={s.color}
+                        strokeWidth={stroke}
+                        strokeDasharray={s.dash}
+                        strokeDashoffset={s.offset}
+                        opacity={hoveredKpi && hoveredKpi !== s.key ? 0.22 : 1}
+                        strokeLinecap="butt"
+                        style={{ cursor: "pointer", transition: "opacity 200ms" }}
+                        onMouseEnter={() => setHoveredKpi(s.key)}
+                        onMouseLeave={() => setHoveredKpi(null)}
+                      />
+                    ))}
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-4 text-center">
+                    {(() => {
+                      const hov = segments.find((s) => s.key === hoveredKpi);
+                      return (
+                        <>
+                          <span className="text-xl font-semibold text-foreground tabular-nums leading-none">
+                            {hov ? `${hov.attainment}%` : `${overall}%`}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground mt-1 truncate max-w-full">
+                            {hov ? hov.label : "attained"}
+                          </span>
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
 
-            <div className="flex-1 min-w-0 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 w-full">
-              {kpiPerf.map((k, idx) => {
-                const flagged = k.attainment < 70;
-                return (
-                  <div
-                    key={k.key}
-                    onMouseEnter={() => setHoveredIdx(idx)}
-                    onMouseLeave={() => setHoveredIdx(null)}
-                    className={cn(
-                      "flex items-center gap-2 text-[11px] rounded px-1.5 py-1 cursor-default transition-colors",
-                      hoveredIdx === idx && "bg-muted",
-                    )}
-                  >
-                    <span
-                      className="w-2.5 h-2.5 rounded-full shrink-0"
-                      style={{ backgroundColor: k.color }}
-                    />
-                    <span className="text-foreground truncate flex-1">{k.label}</span>
-                    {flagged && (
-                      <AlertTriangle size={10} className="text-amber-600 shrink-0" />
-                    )}
-                    <span
+                <div className="flex-1 min-w-0 space-y-1">
+                  {segments.map((s) => (
+                    <div
+                      key={s.key}
+                      onMouseEnter={() => setHoveredKpi(s.key)}
+                      onMouseLeave={() => setHoveredKpi(null)}
                       className={cn(
-                        "font-semibold tabular-nums",
-                        k.attainment >= 90
-                          ? "text-emerald-700"
-                          : k.attainment >= 70
-                          ? "text-amber-700"
-                          : "text-red-700",
+                        "flex items-center gap-2 text-[12px] rounded-md px-1.5 py-1 -mx-1.5 cursor-default transition-all duration-200",
+                        hoveredKpi === s.key && "bg-muted/50",
+                        hoveredKpi && hoveredKpi !== s.key && "opacity-35",
                       )}
                     >
-                      {k.attainment}%
-                    </span>
-                  </div>
-                );
-              })}
+                      <span
+                        className="w-2 h-2 rounded-full shrink-0"
+                        style={{ backgroundColor: s.color }}
+                      />
+                      <span className="flex-1 truncate text-foreground/80">{s.label}</span>
+                      <span className="tabular-nums text-muted-foreground">{s.share}%</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
-        )}
-      </div>
+        );
+      })()}
 
-      {/* Actionable insights */}
-      {kpiPerf.length > 0 && (
-        <div className="rounded-md border border-primary/20 bg-primary/[0.04] px-3 py-3 space-y-2">
-          <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-primary font-semibold">
-            <Lightbulb size={12} /> What to do next
-          </div>
-          <ul className="space-y-1.5 text-[12px] text-foreground">
-            {underperformers.slice(0, 2).map((k) => (
-              <li key={k.key} className="flex items-start gap-2">
-                <span className="mt-1 w-1 h-1 rounded-full bg-red-500 shrink-0" />
-                <span>
-                  <span className="font-semibold">{k.label} ({k.attainment}%):</span>{" "}
-                  {suggestionFor(k.label, k.attainment)}
-                </span>
-              </li>
-            ))}
-            {underperformers.length === 0 && topPerformer && (
-              <li className="flex items-start gap-2">
-                <span className="mt-1 w-1 h-1 rounded-full bg-emerald-500 shrink-0" />
-                <span>
-                  <span className="font-semibold">{topPerformer.label}</span> is leading at{" "}
-                  {topPerformer.attainment}% — share the playbook with peers.
-                </span>
-              </li>
-            )}
-            <li className="flex items-start gap-2">
-              <span className="mt-1 w-1 h-1 rounded-full bg-primary shrink-0" />
-              <span>
-                Projected payout this cycle: <span className="font-semibold">₹{estPayout.toLocaleString("en-IN")}</span>{" "}
-                ({overall}% of max). {overall < 70 ? "A 10-point lift on the bottom 2 KPIs adds ~₹" + Math.round(programme.maxMonthlyEarning * 0.05).toLocaleString("en-IN") + " in payout." : "Maintain pace to hit the upper slab."}
-              </span>
-            </li>
-          </ul>
-        </div>
-      )}
-
+      {/* Footer — edit CTA */}
       {canEdit && (
-        <div className="flex justify-end">
+        <div className="flex flex-col items-center gap-1.5 pt-0.5">
           <Button size="sm" variant="outline" className="gap-1.5 text-xs h-8" onClick={onEdit}>
-            <Pencil size={12} />
-            Open editor
+            <Pencil size={12} /> Edit programme
           </Button>
         </div>
       )}
-    </div>
-  );
-}
-
-function StatTile({
-  label,
-  value,
-  sub,
-  icon,
-  accent = "neutral",
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  icon?: React.ReactNode;
-  accent?: "good" | "warn" | "bad" | "neutral";
-}) {
-  const accentClass =
-    accent === "good"
-      ? "text-emerald-700"
-      : accent === "warn"
-      ? "text-amber-700"
-      : accent === "bad"
-      ? "text-red-700"
-      : "text-foreground";
-  return (
-    <div className="rounded-md border border-border bg-card px-3 py-2">
-      <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-        {label}
-      </div>
-      <div className={cn("text-base font-semibold tabular-nums inline-flex items-center gap-1.5 mt-0.5", accentClass)}>
-        {icon}
-        {value}
-      </div>
-      {sub && <div className="text-[10px] text-muted-foreground mt-0.5">{sub}</div>}
     </div>
   );
 }
@@ -1337,15 +1537,9 @@ function EmptyState({ onCreateNew }: { onCreateNew: () => void }) {
         <AlertCircle size={26} />
       </div>
       <h2 className="text-base font-semibold text-foreground">No programmes yet</h2>
-      <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-        Create your first incentive programme or start from one of the 13 Emami templates.
-      </p>
       <div className="flex items-center gap-2 mt-5">
         <Button size="sm" className="gap-1.5 text-xs" onClick={onCreateNew}>
-          <Plus size={14} /> Create from scratch
-        </Button>
-        <Button size="sm" variant="outline" className="gap-1.5 text-xs">
-          <Lightbulb size={14} /> Browse templates
+          <Plus size={14} /> Create your first incentive programme
         </Button>
       </div>
     </div>

@@ -2,13 +2,14 @@
 // maxPayout / summarize) from the single KPI config array (KpiMeta[]), binding
 // the math via computeId. Each KPI carries its own `tag`.
 //
-// Seeded synchronously from the bundled dummy config at module load so the
-// synchronous consumers (registry shims, non-React converters) work offline and
-// on first paint. useKpiCatalog() refreshes it from the API.
+// KPIs come from the config API only — nothing is bundled, so the catalog starts
+// EMPTY and stays empty until useKpiCatalog() installs the fetched config. The
+// synchronous consumers (registry shims, non-React converters like ruleToBuilder)
+// read it via getKpiCatalog(), so the app shell holds the routed page back until
+// the catalog is loaded (see AppLayout).
 
 import type { KpiMeta } from "./kpiSchema";
 import { COMPUTE_REGISTRY } from "./computeRegistry";
-import { DUMMY_KPI_METAS } from "./dummyKpiConfig";
 
 export interface CatalogEntry {
   meta: KpiMeta;
@@ -76,8 +77,11 @@ export function buildCatalog(metas: KpiMeta[], visibleIds?: string[]): KpiCatalo
   return { entries, templates };
 }
 
+/** The pre-load state: no KPIs until the config API answers. */
+const EMPTY_CATALOG: KpiCatalog = { entries: {}, templates: [] };
+
 // Module-level current catalog (mutable, like the saleshubApi config cache).
-let currentCatalog: KpiCatalog = buildCatalog(DUMMY_KPI_METAS);
+let currentCatalog: KpiCatalog = EMPTY_CATALOG;
 
 export function getKpiCatalog(): KpiCatalog {
   return currentCatalog;
@@ -85,4 +89,13 @@ export function getKpiCatalog(): KpiCatalog {
 
 export function setKpiCatalog(catalog: KpiCatalog): void {
   currentCatalog = catalog;
+}
+
+/**
+ * True once a catalog with at least one KPI has been installed from config.
+ * Consumers that resolve KPIs synchronously (rule → builder conversions, the
+ * registry shims) are only safe to run once this holds.
+ */
+export function isKpiCatalogLoaded(): boolean {
+  return Object.keys(currentCatalog.entries).length > 0;
 }

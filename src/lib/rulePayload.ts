@@ -272,6 +272,7 @@ const KPI_TYPE_BY_TEMPLATE: Partial<Record<KpiTemplateId, string>> = {
   pcc: "PRODUCTIVITY",
   call_compliance: "PRODUCTIVITY",
   must_sell_sku: "MUST_SELL_SKU",
+  sub_db_billing: "SUB_DB_BILLING",
 };
 
 /* ─── Helpers ────────────────────────────────────────────────────────────── */
@@ -309,6 +310,35 @@ function parseGeoTags(tags: string[] | undefined): Record<string, string[]> {
 function toFilterRule(field: string, values: string[], op: "IN" | "NOT_IN" = "IN"): FilterRule {
   if (op === "IN" && values.length === 1) return { field, op: "EQUALS", value: values[0] };
   return { field, op, value: values };
+}
+
+// Some KPIs only score a specific outlet population, whatever the programme's
+// audience is. That narrowing rides on the KPI's own rule as an extra
+// outlet_filters rule (Sub-DB Billing counts Sub-Distributor outlets only).
+const OUTLET_TYPE_BY_TEMPLATE: Partial<Record<KpiTemplateId, string>> = {
+  sub_db_billing: "SUBD",
+};
+
+/**
+ * The programme's criteria narrowed to the outlet population a KPI measures.
+ * Returns the criteria unchanged for KPIs that score every outlet, and never
+ * duplicates an `outletType` rule the audience already contributed.
+ */
+function criteriaForKpi(
+  criteria: ApplicabilityCriteria,
+  templateId: KpiTemplateId
+): ApplicabilityCriteria {
+  const outletType = OUTLET_TYPE_BY_TEMPLATE[templateId];
+  if (!outletType) return criteria;
+  const rules = criteria.outlet_filters?.rules ?? [];
+  if (rules.some((r) => r.field === "outletType")) return criteria;
+  return {
+    ...criteria,
+    outlet_filters: {
+      operator: criteria.outlet_filters?.operator ?? "AND",
+      rules: [...rules, toFilterRule("outletType", [outletType])],
+    },
+  };
 }
 
 function buildApplicabilityCriteria(
@@ -377,6 +407,9 @@ interface SlabLikeConfig {
   minQtyEnabled?: boolean;
   minQtyValue?: number;
   cutoffDay?: number; // phasing KPIs — day-of-month cut-off (e.g. 20).
+  // Binary-threshold KPIs (sub_db_billing) — one threshold, one flat payout.
+  thresholdPct?: number;
+  payout?: number;
   // Cap toggle — shape varies by KPI (pct / value / outlets), but every variant
   // carries `enabled`. Drives whether an open-ended tail tier is emitted. The cap
   // value lives under a KPI-specific key: `pct` for step-up % KPIs (max payable
@@ -473,6 +506,15 @@ function buildPayout(templateId: KpiTemplateId, config: unknown): RuleDefinition
         { min: cfg.minLines, payoutValue: rate },
         { min: cfg.maxLines, payoutValue: rate },
       ],
+    };
+  }
+
+  // Binary threshold (sub_db_billing) — no curve at all: a single tier starting at
+  // the threshold and carrying the flat payout, so nothing is earned below it.
+  if (cfg.thresholdPct != null && cfg.payout != null) {
+    return {
+      stepUpBy1Percent: false,
+      tiers: [{ min: cfg.thresholdPct, payoutValue: Math.round(cfg.payout) }],
     };
   }
 
@@ -661,7 +703,7 @@ function gateKpiIdentity(
   metricGroup: string,
   metric: string,
   programKpis: ProgramKpi[],
-): { code: string; kpiType: string } {
+): { code: string; kpiType: string; templateId?: KpiTemplateId } {
   if (metricGroup === "kpi") {
     const match = programKpis.find(
       (k) => k.instanceId === metric || k.templateId === metric,
@@ -669,7 +711,11 @@ function gateKpiIdentity(
     if (match) {
       const meta = KPI_TEMPLATE_MAP[match.templateId]?.meta;
       const code = meta?.baseKpiName ?? meta?.kpiCode ?? match.templateId;
-      return { code, kpiType: KPI_TYPE_BY_TEMPLATE[match.templateId] ?? "BASE" };
+      return {
+        code,
+        kpiType: KPI_TYPE_BY_TEMPLATE[match.templateId] ?? "BASE",
+        templateId: match.templateId,
+      };
     }
   }
   return {
@@ -698,7 +744,7 @@ function buildGateConditions(
   for (const gate of gates ?? []) {
     const { consequenceType, consequenceConfig } = consequenceFor(gate.consequence);
     for (const c of gate.conditions ?? []) {
-      const { code, kpiType } = gateKpiIdentity(c.metricGroup, c.metric, ctx.programKpis);
+      const { code, kpiType, templateId } = gateKpiIdentity(c.metricGroup, c.metric, ctx.programKpis);
       out.push({
         gateKpiCode: code,
         threshold: c.value,
@@ -715,7 +761,9 @@ function buildGateConditions(
             frequency: ctx.frequency,
             baseKpiName: code,
             kpiType,
-            criteria: ctx.criteria,
+            // A gate KPI is scoped like any other KPI entity: if the metric it
+            // measures only counts a specific outlet population, say so here too.
+            criteria: templateId ? criteriaForKpi(ctx.criteria, templateId) : ctx.criteria,
           }),
         ),
       });
@@ -773,7 +821,7 @@ function buildKpiLevelGateConditions(
     const raw = g.dependsOnKpiId ?? "";
     const [group, ...rest] = raw.includes("::") ? raw.split("::") : ["kpi", raw];
     const metric = rest.join("::");
-    const { code, kpiType } = gateKpiIdentity(group, metric, ctx.programKpis);
+    const { code, kpiType, templateId } = gateKpiIdentity(group, metric, ctx.programKpis);
     const { consequenceType, consequenceConfig } = kpiGateConsequence(g.consequence);
     return {
       gateKpiCode: code,
@@ -791,7 +839,9 @@ function buildKpiLevelGateConditions(
           frequency: ctx.frequency,
           baseKpiName: code,
           kpiType,
-          criteria: ctx.criteria,
+          // Same as the program-level gates: the gate KPI carries the outlet
+          // population its own metric measures.
+          criteria: templateId ? criteriaForKpi(ctx.criteria, templateId) : ctx.criteria,
         }),
       ),
     };
@@ -838,6 +888,11 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
     const kpiId = meta?.id ?? kpi.templateId;
     // Human-readable KPI name — the instance's custom name, else the template name.
     const kpiName = kpi.customName?.trim() || meta?.name || kpiCode;
+    // This KPI's own scope: the programme's criteria plus any outlet population the
+    // KPI is restricted to (e.g. Sub-DB Billing → outletType SUBD). Gate KPIs are
+    // scoped the same way but from THEIR metric, not this one — a gate on NSV keeps
+    // the programme's outlets even on a Sub-DB rule (see buildGateConditions).
+    const kpiCriteria = criteriaForKpi(applicabilityCriteria, kpi.templateId);
     const payout = buildPayout(kpi.templateId, kpi.config);
     // maxPayout already folds in the cap-extension diff for cap-aware flows
     // (step-up %, outlet-count), so the payload, edit view, and reports agree.
@@ -924,7 +979,7 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
       // approved, not parked for review. Matches the nested kpiConfig status.
       status: "APPROVED",
       isActive: true,
-      applicabilityCriteria,
+      applicabilityCriteria: kpiCriteria,
       ruleDefinition: {
         kpiCode: baseKpiName,
         kpiId,
@@ -954,7 +1009,7 @@ export function buildRulePayloads(state: BuilderState): RuleApiPayload[] {
         frequency: calculationFrequency,
         baseKpiName,
         kpiType: "BASE",
-        criteria: applicabilityCriteria,
+        criteria: kpiCriteria,
         cutoffDate,
       }),
       gateConditions,

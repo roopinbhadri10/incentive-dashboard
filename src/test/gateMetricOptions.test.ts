@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { firstMetricValue, NSV_METRIC_VALUE } from "@/components/kpi-library/GateMetricOptions";
+import { blankCondition } from "@/components/wizard/steps/GateRulesStep";
 import type { MetricGroups } from "@/lib/saleshubApi";
 
 describe("firstMetricValue", () => {
@@ -28,5 +29,31 @@ describe("firstMetricValue", () => {
     // metric the user never chose.
     expect(firstMetricValue({})).toBe("");
     expect(firstMetricValue({})).not.toBe(NSV_METRIC_VALUE);
+  });
+});
+
+describe("blankCondition", () => {
+  it("preselects the first metric the config offers", () => {
+    const groups: MetricGroups = {
+      attendance: [{ name: "Present days", gateCode: "PRESENT_DAYS" }],
+      field_activity: [{ name: "Avg CFT hours", gateCode: "CFT_HOURS" }],
+    };
+    expect(blankCondition(groups)).toMatchObject({
+      metricGroup: "attendance",
+      metric: "PRESENT_DAYS",
+    });
+  });
+
+  it("does not hardcode a metric absent from the catalog", () => {
+    // Regression: the step used to seed attendance/ABSENT_DAYS, which rendered an
+    // empty picker on any tenant whose config omits that gate code.
+    const groups: MetricGroups = {
+      attendance: [{ name: "Present days", gateCode: "PRESENT_DAYS" }],
+    };
+    expect(blankCondition(groups).metric).not.toBe("ABSENT_DAYS");
+  });
+
+  it("leaves the metric empty when config has loaded no groups", () => {
+    expect(blankCondition({})).toMatchObject({ metricGroup: "", metric: "" });
   });
 });

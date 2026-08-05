@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -198,22 +199,19 @@ export function QuickCloneReview({ programs, onBack, onPublish, onOpenInWizard }
                               {MONTH_NAMES.map((m, i) => <SelectItem key={m} value={String(i + 1)}>{m}</SelectItem>)}
                             </SelectContent>
                           </Select>
-                          <Input
-                            type="number"
+                          <NumberInput
                             className="h-8 w-[72px] text-xs"
                             value={d.period.year}
-                            onChange={(e) => updateDraft(idx, { period: { ...d.period, year: Number(e.target.value) } })}
+                            onValueChange={(year) => updateDraft(idx, { period: { ...d.period, year } })}
                           />
                         </div>
                       </td>
                       <td className="px-3 py-3 text-right">
                         {cap !== null ? (
-                          <Input
-                            type="number"
+                          <NumberInput
                             className="h-8 w-[110px] text-xs text-right ml-auto tabular-nums"
                             value={cap}
-                            onChange={(e) => {
-                              const v = Number(e.target.value);
+                            onValueChange={(v) => {
                               setDrafts((ds) => ds.map((row, i) => (i === idx ? setNsvCap(row, v) : row)));
                             }}
                           />

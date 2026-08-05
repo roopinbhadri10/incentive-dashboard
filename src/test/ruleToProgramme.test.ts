@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { ruleToProgramme, getSourceRule } from "@/lib/ruleToProgramme";
+import {
+  ruleToProgramme, rulesToProgrammes, getSourceRule, getSourceRules,
+} from "@/lib/ruleToProgramme";
 import type { RuleRecord } from "@/lib/ruleApi";
 
 const baseRule: RuleRecord = {
@@ -78,5 +80,74 @@ describe("ruleToProgramme", () => {
     const structurallySharedCopy = { ...original };
     expect(structurallySharedCopy).not.toBe(original);
     expect(getSourceRule(structurallySharedCopy)).toBe(baseRule);
+  });
+});
+
+describe("rulesToProgrammes — one row per programme", () => {
+  /** The engine's record for KPI `n` of a programme: one rule each. */
+  const kpiRule = (programId: string, n: number, max: number): RuleRecord => ({
+    ...baseRule,
+    id: `${programId}-rule-${n}`,
+    programId,
+    ruleCode: `RULE-2026-06-01-${n}`,
+    ruleDefinition: {
+      kpiId: `kpi_${n}`,
+      kpiName: `KPI ${n}`,
+      tiers: [
+        { minVal: 0, maxVal: 80, payout: 0 },
+        { minVal: 80, maxVal: 9999, payout: max },
+      ],
+    },
+  });
+
+  it("collapses a programme's 5 KPI rules into a single aggregated row", () => {
+    const rules = [1, 2, 3, 4, 5].map((n) => kpiRule("prog-1", n, n * 1000));
+    const programmes = rulesToProgrammes(rules);
+
+    expect(programmes).toHaveLength(1);
+    const [p] = programmes;
+    expect(p.name).toBe("June Sales Target Incentive");
+    // Max payout is the SUM across KPIs, not any single rule's top tier.
+    expect(p.maxMonthlyEarning).toBe(1000 + 2000 + 3000 + 4000 + 5000);
+    // Every KPI is summarised, in rule order, with its own max.
+    expect(p.kpiSummaries?.map((k) => k.name)).toEqual([
+      "KPI 1", "KPI 2", "KPI 3", "KPI 4", "KPI 5",
+    ]);
+    expect(p.kpiSummaries?.[2]).toMatchObject({ templateId: "kpi_3", maxEarning: 3000 });
+    // Archiving / republishing has to reach every rule behind the row.
+    expect(p.ruleIds).toEqual(rules.map((r) => r.id));
+    // …and edit / clone must rebuild from all of them, not just the lead rule.
+    expect(getSourceRules(p)).toEqual(rules);
+    expect(getSourceRule(p)).toBe(rules[0]);
+  });
+
+  it("keeps separate programmes apart and preserves first-seen order", () => {
+    const programmes = rulesToProgrammes([
+      kpiRule("prog-a", 1, 1000),
+      kpiRule("prog-b", 1, 500),
+      kpiRule("prog-a", 2, 2000),
+    ]);
+    expect(programmes.map((p) => p.programId)).toEqual(["prog-a", "prog-b"]);
+    expect(programmes[0].kpiSummaries).toHaveLength(2);
+    expect(programmes[0].maxMonthlyEarning).toBe(3000);
+    expect(programmes[1].kpiSummaries).toHaveLength(1);
+  });
+
+  it("groups pre-programId rules by name + effective window", () => {
+    // Rules saved before programId existed still share the programme name and
+    // window, so they must not each become their own row.
+    const legacy = (n: number): RuleRecord => ({
+      ...baseRule,
+      id: `legacy-${n}`,
+      programId: undefined,
+      ruleDefinition: { kpiName: `KPI ${n}`, tiers: [{ minVal: 80, maxVal: 9999, payout: 700 }] },
+    });
+    const programmes = rulesToProgrammes([legacy(1), legacy(2)]);
+    expect(programmes).toHaveLength(1);
+    expect(programmes[0].maxMonthlyEarning).toBe(1400);
+
+    // A different window is a different programme, even under the same name.
+    const other = { ...legacy(3), effectiveFrom: "2026-07-01", effectiveTill: "2026-07-31" };
+    expect(rulesToProgrammes([legacy(1), other])).toHaveLength(2);
   });
 });

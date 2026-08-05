@@ -16,7 +16,8 @@
       "pcc",
       "call_compliance",
       "must_sell_sku",
-      "ulpo"
+      "ulpo",
+      "sub_db_billing"
     ]
   }
 }

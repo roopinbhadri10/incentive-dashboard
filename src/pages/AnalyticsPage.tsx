@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/select";
 import { useQuery } from "@tanstack/react-query";
 import { fetchRules } from "@/lib/ruleApi";
-import { ruleToProgramme } from "@/lib/ruleToProgramme";
+import { rulesToProgrammes } from "@/lib/ruleToProgramme";
 import { fetchProgramRoles, fetchRolePayloadValues, fetchRoleDesignations } from "@/lib/saleshubApi";
 import { programmeCategory } from "@/pages/ProgramsPage";
 import {
@@ -190,7 +190,7 @@ export function AnalyticsPage() {
         fetchRolePayloadValues().catch(() => ({})),
         fetchRoleDesignations().catch(() => ({})),
       ]);
-      return rules.map(ruleToProgramme);
+      return rulesToProgrammes(rules);
     },
   });
 

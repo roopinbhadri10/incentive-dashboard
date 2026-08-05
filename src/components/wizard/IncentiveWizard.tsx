@@ -20,7 +20,7 @@ import { useToast } from "@/hooks/use-toast";
 import { saveProgram, newProgramId, quarterForMonth } from "@/lib/programStore";
 import { buildRulePayloads } from "@/lib/rulePayload";
 import { isCapInvalid } from "@/components/kpi-library/capValidation";
-import { submitRules, updateRule } from "@/lib/ruleApi";
+import { submitRules, updateRule, archiveRule } from "@/lib/ruleApi";
 import { fetchChannelNames, fetchRolePayloadValues, fetchRoleDesignations } from "@/lib/saleshubApi";
 import { friendlyMessage } from "@/lib/apiError";
 
@@ -189,19 +189,29 @@ export function IncentiveWizard({ onBack, prefill, onPublished }: IncentiveWizar
     deleteDraft(draftIdRef.current);
     try {
       const payloads = buildRulePayloads(state);
-      const editRuleId = prefill?.editRuleId;
+      const editRuleIds = prefill?.editRuleIds ?? [];
       if (payloads.length > 0) {
-        if (editRuleId) {
-          // Editing an existing rule → PUT it in place with the first payload.
-          // Any additional KPIs added during the edit have no rule yet, so they're
-          // POSTed as new rules.
-          await updateRule(editRuleId, payloads[0]);
-          if (payloads.length > 1) await submitRules(payloads.slice(1));
+        if (editRuleIds.length) {
+          // Editing an existing programme. The engine keeps one rule per KPI, so pair
+          // the payloads with the rules the programme already has: PUT the overlap in
+          // place, POST payloads with no rule left to take (KPIs added during the
+          // edit), and archive rules with no payload left (KPIs removed) so they stop
+          // paying out. Pairing is positional — each rule is rewritten wholesale, so
+          // the end state matches the KPI list either way.
+          for (let i = 0; i < Math.min(payloads.length, editRuleIds.length); i++) {
+            await updateRule(editRuleIds[i], payloads[i]);
+          }
+          if (payloads.length > editRuleIds.length) {
+            await submitRules(payloads.slice(editRuleIds.length));
+          }
+          for (const staleId of editRuleIds.slice(payloads.length)) {
+            await archiveRule(staleId);
+          }
         } else {
           await submitRules(payloads);
         }
         toast({
-          title: editRuleId ? "✅ Programme updated!" : "🚀 Programme is live!",
+          title: editRuleIds.length ? "✅ Programme updated!" : "🚀 Programme is live!",
           description:
             payloads.length > 1
               ? `Saved to All Programs · ${payloads.length} rules sent to the incentive engine.`

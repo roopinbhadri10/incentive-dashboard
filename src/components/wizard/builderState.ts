@@ -199,9 +199,11 @@ export interface WizardPrefill {
   name?: string;
   builder?: BuilderState;
   startAtReview?: boolean;
-  /** Set on an edit flow: the id of the rule being edited. Present → publishing
-   *  PUTs that rule in place; absent → publishing POSTs a new rule. */
-  editRuleId?: string;
+  /** Set on an edit flow: the ids of the rules being edited — the engine keeps one
+   *  rule per KPI, so a programme has one id per KPI, in KPI order. Present →
+   *  publishing PUTs those rules in place (POSTing any KPI added during the edit,
+   *  archiving any rule whose KPI was removed); absent → publishing POSTs new rules. */
+  editRuleIds?: string[];
   /** Resumed draft: its store id, so autosave keeps updating the same entry. */
   draftId?: string;
   /** Resumed draft: the step the user left off on. */

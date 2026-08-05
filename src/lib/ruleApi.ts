@@ -123,6 +123,12 @@ export interface RuleRecord {
   }>;
   ruleDefinition?: {
     kpiCode?: string;
+    /** The KPI template this rule scores (the catalog id, e.g. "nsv"). */
+    kpiId?: string;
+    /** Display name of the KPI — the instance's custom name, else the template's. */
+    kpiName?: string;
+    /** Max payout of this KPI, as sent when the rule was published. */
+    maxEarning?: number;
     payoutType?: string;
     stepUpBy1Percent?: boolean;
     startingEarning?: number;

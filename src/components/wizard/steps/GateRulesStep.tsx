@@ -1,6 +1,7 @@
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
@@ -17,7 +18,7 @@ import {
   fetchConsequenceOptions,
   type MetricGroups, type ConsequenceOptions, type ConsequenceOption,
 } from "@/lib/saleshubApi";
-import { GateMetricOptions, useMetricGroups, NSV_METRIC_VALUE, nsvMetricLabel } from "@/components/kpi-library/GateMetricOptions";
+import { GateMetricOptions, useMetricGroups, firstMetricValue, NSV_METRIC_VALUE, nsvMetricLabel } from "@/components/kpi-library/GateMetricOptions";
 
 const TERRITORY_LABEL: Record<TerritoryFilter, string> = {
   all: "All days",
@@ -60,17 +61,29 @@ const OPERATORS: { id: GateOperator; label: string }[] = [
 
 const opLabel = (o: GateOperator) => OPERATORS.find((x) => x.id === o)?.label || o;
 
+// A blank condition preselects the first metric the config actually offers.
+// Hardcoding one (e.g. attendance/ABSENT_DAYS) leaves the picker rendering empty
+// whenever that code is absent from the loaded catalog.
+export const blankCondition = (metricGroups: MetricGroups): GateCondition => {
+  const [metricGroup = "", ...rest] = firstMetricValue(metricGroups).split("::");
+  return { metricGroup, metric: rest.join("::"), operator: "gt", value: 0, unit: "" };
+};
+
 const GATES_EXPLAINER =
   "Gates are minimum thresholds a rep must hit before earning any payout. E.g. \"Must achieve 70% collection target\".";
 
 export function GateRulesStep({ value, onChange, kpis, audience }: Props) {
+  // Metric groups for the condition picker come from config, shared with the
+  // KPI-level gate picker so both offer the exact same options.
+  const metricGroups = useMetricGroups();
+
   const addGate = (gate?: GateRule) => {
     onChange([
       ...value,
       gate ?? {
         id: uid("gate"),
         joiner: "AND",
-        conditions: [{ metricGroup: "attendance", metric: "ABSENT_DAYS", operator: "gt", value: 5, unit: "days" }],
+        conditions: [blankCondition(metricGroups)],
         consequence: { kind: "zero-all" },
       },
     ]);
@@ -79,10 +92,6 @@ export function GateRulesStep({ value, onChange, kpis, audience }: Props) {
     onChange(value.map((g) => (g.id === id ? { ...g, ...patch } : g)));
   };
   const removeGate = (id: string) => onChange(value.filter((g) => g.id !== id));
-
-  // Metric groups for the condition picker come from config, shared with the
-  // KPI-level gate picker so both offer the exact same options.
-  const metricGroups = useMetricGroups();
   const [consequenceOptions, setConsequenceOptions] = useState<ConsequenceOptions>([]);
   useEffect(() => {
     fetchConsequenceOptions()
@@ -187,7 +196,7 @@ function GateCard({
   const removeCondition = (i: number) => onUpdate({ conditions: gate.conditions.filter((_, j) => j !== i) });
   const addCondition = () =>
     onUpdate({
-      conditions: [...gate.conditions, { metricGroup: "attendance", metric: "ABSENT_DAYS", operator: "gt", value: 0, unit: "" }],
+      conditions: [...gate.conditions, blankCondition(metricGroups)],
     });
 
   return (
@@ -248,11 +257,11 @@ function GateCard({
                 </SelectContent>
               </Select>
 
-              <Input type="number" value={c.value} onChange={(e) => updateCondition(i, { value: Number(e.target.value) })} className="h-8 w-20 text-xs" />
+              <NumberInput value={c.value} onValueChange={(value) => updateCondition(i, { value })} className="h-8 w-20 text-xs" />
               {c.operator === "between" && (
                 <>
                   <span className="text-xs">and</span>
-                  <Input type="number" value={c.value2 ?? 0} onChange={(e) => updateCondition(i, { value2: Number(e.target.value) })} className="h-8 w-20 text-xs" />
+                  <NumberInput value={c.value2 ?? 0} onValueChange={(value2) => updateCondition(i, { value2 })} className="h-8 w-20 text-xs" />
                 </>
               )}
 
@@ -403,12 +412,13 @@ function renderReduceLabel(
   return label.split(/(\{percent\}|\{scope\})/).map((part, i) => {
     if (part === "{percent}") {
       return (
-        <Input
+        <NumberInput
           key={i}
-          type="number"
           disabled={!isReduce}
           value={percent}
-          onChange={(e) => onUpdate({ consequence: { kind: "reduce", percent: Number(e.target.value), scope } })}
+          min={0}
+          max={100}
+          onValueChange={(pct) => onUpdate({ consequence: { kind: "reduce", percent: pct, scope } })}
           className="h-7 w-16 text-xs inline-block"
         />
       );

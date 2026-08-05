@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ruleToBuilder } from "@/lib/ruleToBuilder";
+import { ruleToBuilder, rulesToBuilder } from "@/lib/ruleToBuilder";
 import type { RuleRecord } from "@/lib/ruleApi";
 
 describe("ruleToBuilder", () => {
@@ -249,6 +249,30 @@ describe("ruleToBuilder", () => {
     expect(cfg.cap).toEqual({ enabled: true, outlets: 300 });
   });
 
+  it("recovers the threshold and flat payout of a binary rule (sub_db_billing)", () => {
+    const rule: RuleRecord = {
+      ruleName: "Sub-DB Billing",
+      calculationFrequency: "MONTHLY",
+      kpiCombination: "SUB_DB_BILLING",
+      effectiveFrom: "2026-06-01",
+      ruleDefinition: {
+        kpiCode: "SUB_DB_BILLING",
+        stepUpBy1Percent: false,
+        keyRules: [],
+        // No kpiConfig.templateConfig → forces reconstruction. A binary KPI emits a
+        // lone tier: `min` is the threshold %, `payoutValue` the flat amount.
+        tiers: [{ min: 75, max: null, payoutType: "FIXED", payoutValue: 1500 }],
+      },
+    };
+    const kpi = ruleToBuilder(rule).programKpis[0];
+    expect(kpi.templateId).toBe("sub_db_billing");
+    const cfg = kpi.config as { thresholdPct: number; payout: number; benchmarkType: string };
+    expect(cfg.thresholdPct).toBe(75);
+    expect(cfg.payout).toBe(1500);
+    // Fields the tiers don't carry stay on the template defaults.
+    expect(cfg.benchmarkType).toBe("l3m");
+  });
+
   it("recovers the per-line rate (not 0) when rebuilding a line-based rule from tiers", () => {
     const rule: RuleRecord = {
       ruleName: "Lines Sold",
@@ -299,5 +323,52 @@ describe("ruleToBuilder", () => {
     expect(b.channels).toEqual(["GT"]);
     expect(b.audience.division).toBeUndefined();
     expect(b.programKpis[0].templateId).toBe("eco");
+  });
+});
+
+describe("rulesToBuilder — a programme's rules, one per KPI", () => {
+  const kpiRule = (kpiCode: string, name: string): RuleRecord => ({
+    ruleName: "June Sales Target Incentive",
+    calculationFrequency: "MONTHLY",
+    kpiCombination: kpiCode,
+    effectiveFrom: "2026-06-01",
+    applicabilityCriteria: {
+      operator: "AND",
+      conditions: [
+        { property: "division", operator: "IN", values: ["CCD"] },
+        { property: "channel", operator: "IN", values: ["GT"] },
+      ],
+    },
+    kpiConfig: { userFilters: { roles: ["MR"] }, templateId: name },
+    ruleDefinition: { kpiCode },
+  });
+
+  it("rebuilds every KPI, taking the programme-level state from the first rule", () => {
+    // Editing a 3-KPI programme must open the wizard with all three; reading only
+    // the lead rule would silently drop the rest on republish.
+    const b = rulesToBuilder([
+      kpiRule("TARGET_VS_ACHIEVEMENT", "nsv"),
+      kpiRule("COLLECTION", "collection"),
+      kpiRule("SUB_DB_BILLING", "sub_db_billing"),
+    ]);
+    expect(b.programKpis.map((k) => k.templateId)).toEqual([
+      "nsv",
+      "collection",
+      "sub_db_billing",
+    ]);
+    // Instance ids stay distinct so the KPI step can address each row.
+    expect(new Set(b.programKpis.map((k) => k.instanceId)).size).toBe(3);
+    // Programme-level sections come from the first rule (identical across them).
+    expect(b.basics.name).toBe("June Sales Target Incentive");
+    expect(b.audience.division).toBe("CCD");
+    expect(b.audience.roles).toEqual(["MR"]);
+    expect(b.channels).toEqual(["GT"]);
+  });
+
+  it("matches ruleToBuilder for a single-rule programme", () => {
+    const rule = kpiRule("TARGET_VS_ACHIEVEMENT", "nsv");
+    const one = rulesToBuilder([rule]);
+    expect(one.programKpis).toHaveLength(1);
+    expect(one.programKpis[0].templateId).toBe(ruleToBuilder(rule).programKpis[0].templateId);
   });
 });

@@ -2,11 +2,12 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { emptyBuilder, type BuilderState } from "@/components/wizard/builderState";
 import { DEFAULT_NSV, DEFAULT_NSV_KEY_NOTES } from "@/components/kpi-library/nsvTypes";
 import { buildRulePayloads } from "@/lib/rulePayload";
-import { buildCatalog } from "@/components/kpi-library/schema/kpiCatalog";
-import { DUMMY_KPI_METAS } from "@/components/kpi-library/schema/dummyKpiConfig";
+import { getKpiCatalog } from "@/components/kpi-library/schema/kpiCatalog";
 
-const ecoBaseConfig = () =>
-  buildCatalog(DUMMY_KPI_METAS).entries.eco.defaultConfig() as Record<string, unknown>;
+// Defaults come from the catalog the API installed (setup.ts stands in for it).
+const defaultConfigFor = (id: string) => getKpiCatalog().entries[id].defaultConfig();
+
+const ecoBaseConfig = () => defaultConfigFor("eco") as Record<string, unknown>;
 
 const ECO_SLABS = [
   { count: 150, ratePerOutlet: 2 },
@@ -233,7 +234,7 @@ describe("buildRulePayloads", () => {
   });
 
   it("passes the ₹-per-line rate (not the computed top payout) for line-based KPIs", () => {
-    const tlsdBase = buildCatalog(DUMMY_KPI_METAS).entries.tlsd.defaultConfig() as Record<string, unknown>;
+    const tlsdBase = defaultConfigFor("tlsd") as Record<string, unknown>;
     const state = sampleState();
     state.programKpis = [
       {
@@ -419,6 +420,78 @@ describe("earning basis → ruleDefinition.ruleMappings", () => {
       ecoState({ ...ecoBaseConfig(), slabs: ECO_SLABS, role: "aso_ase" }),
     )[0];
     expect(rule.ruleDefinition.ruleMappings?.[0].multiplier).toBe(3);
+  });
+
+  it("emits a single tier at the threshold for a binary KPI (sub_db_billing)", () => {
+    // Binary KPIs have no curve: nothing below the threshold, the flat payout at or
+    // above it. A 0-floor tier would pay the full amount at 0% achievement.
+    const state = sampleState();
+    state.programKpis = [
+      {
+        templateId: "sub_db_billing",
+        instanceId: "k1",
+        config: defaultConfigFor("sub_db_billing"),
+      },
+    ];
+    const rd = buildRulePayloads(state)[0].ruleDefinition;
+    expect(rd.stepUpBy1Percent).toBe(false);
+    expect(rd.maxEarning).toBe(1000);
+    expect(rd.tiers).toEqual([{ min: 80, max: null, payoutType: "FIXED", payoutValue: 1000 }]);
+  });
+
+  it("scopes sub_db_billing to Sub-Distributor outlets, leaving other KPIs alone", () => {
+    // Sub-DB Billing only counts Sub-Distributor outlets, so its own rule carries an
+    // extra outlet filter on top of the programme's audience. Its sibling NSV rule in
+    // the same programme must keep the unnarrowed outlet filters.
+    const state = sampleState();
+    state.programKpis = [
+      { templateId: "nsv", instanceId: "k1", config: DEFAULT_NSV },
+      { templateId: "sub_db_billing", instanceId: "k2", config: defaultConfigFor("sub_db_billing") },
+    ];
+    const [nsvRule, subDbRule] = buildRulePayloads(state);
+
+    const outletTypeRule = { field: "outletType", op: "EQUALS", value: "SUBD" };
+    expect(subDbRule.applicabilityCriteria.outlet_filters.rules).toContainEqual(outletTypeRule);
+    // The nested KPI entity repeats the rule's scope, so it carries it too.
+    expect(subDbRule.kpiConfig.outlet_filters.rules).toContainEqual(outletTypeRule);
+    // The channel filter the audience contributed survives alongside it.
+    expect(subDbRule.applicabilityCriteria.outlet_filters.rules).toContainEqual({
+      field: "channel", op: "IN", value: ["GT", "MT"],
+    });
+
+    expect(nsvRule.applicabilityCriteria.outlet_filters.rules).not.toContainEqual(outletTypeRule);
+    expect(nsvRule.kpiConfig.outlet_filters.rules).not.toContainEqual(outletTypeRule);
+    // User filters are untouched — the narrowing is about outlets, not people.
+    expect(subDbRule.applicabilityCriteria.user_filters).toEqual(
+      nsvRule.applicabilityCriteria.user_filters,
+    );
+  });
+
+  it("scopes a gate KPI by the metric it measures, not by the rule it hangs on", () => {
+    // Gate entities are KPI entities: a Sub-DB gate counts SUBD outlets wherever it
+    // appears, while an NSV gate on the Sub-DB rule keeps the programme's outlets.
+    const state = sampleState();
+    state.programKpis = [
+      { templateId: "nsv", instanceId: "k1", config: DEFAULT_NSV },
+      { templateId: "sub_db_billing", instanceId: "k2", config: defaultConfigFor("sub_db_billing") },
+    ];
+    state.gates = [
+      {
+        id: "g1",
+        joiner: "AND",
+        consequence: { kind: "zero-all" },
+        conditions: [
+          { metricGroup: "kpi", metric: "sub_db_billing", operator: "gt", value: 80, unit: "pct" },
+          { metricGroup: "kpi", metric: "nsv", operator: "gt", value: 90, unit: "pct" },
+        ],
+      },
+    ];
+    const outletTypeRule = { field: "outletType", op: "EQUALS", value: "SUBD" };
+    // Both gates repeat on every rule; check them on the NSV rule, whose own scope
+    // carries no outletType — so anything present came from the gate's metric.
+    const [subDbGate, nsvGate] = buildRulePayloads(state)[0].gateConditions;
+    expect(subDbGate.gateKpiConfig.outlet_filters.rules).toContainEqual(outletTypeRule);
+    expect(nsvGate.gateKpiConfig.outlet_filters.rules).not.toContainEqual(outletTypeRule);
   });
 
   it("leaves KPIs that have no earning-basis choice untouched", () => {

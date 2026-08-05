@@ -1,11 +1,14 @@
 // KPI registry — now a thin compatibility layer over the config-driven catalog
 // (schema/kpiCatalog.ts). KPI metadata, segregation, and section schema come
-// from config (API → bundled dummy fallback). The bespoke per-KPI card
-// components have been replaced by the generic ConfigDrivenKpiCard renderer.
+// from the config API only — there is no bundled catalogue, so every lookup here
+// resolves to undefined until the catalog is loaded (see useKpiCatalog / AppLayout).
+// The bespoke per-KPI card components have been replaced by the generic
+// ConfigDrivenKpiCard renderer.
 //
-// `KpiTemplateId` stays a static union because the 14 ids are referenced as
-// keys across programStore / rulePayload / builderState. Config-only KPIs added
-// in the future use `KpiTemplateIdOrCustom`.
+// `KpiTemplateId` stays a static union because these ids are referenced as keys
+// across programStore / rulePayload / builderState — it names the KPIs the code
+// knows about, not the catalogue (which the API owns). Config-only KPIs beyond
+// the union use `KpiTemplateIdOrCustom`.
 
 import { getKpiCatalog, type CatalogEntry } from "./schema/kpiCatalog";
 
@@ -23,6 +26,7 @@ export type KpiTemplateId =
   | "call_compliance"
   | "must_sell_sku"
   | "ulpo"
+  | "sub_db_billing"
   | "ai_recommended_order";
 
 // Allow config-defined KPIs beyond the built-in union without losing literal
