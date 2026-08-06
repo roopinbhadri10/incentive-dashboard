@@ -15,7 +15,7 @@ import type {
   Channel, Programme, ProgrammeKpiSummary, ProgrammeStatus,
 } from "@/types/programme";
 import type { RuleRecord } from "./ruleApi";
-import { rolesFromRule, normalizeRuleTiers } from "./ruleToBuilder";
+import { rolesFromRule } from "./ruleToBuilder";
 
 // Associates each mapped Programme with the source rules it was built from — one
 // per KPI — so clone/edit can rebuild the full wizard state from them (the
@@ -94,12 +94,18 @@ function periodFromIso(iso: string | undefined): { month: number; year: number; 
   return { month, year, isQ1: month >= 1 && month <= 3 };
 }
 
-/** This rule's own max payout — one KPI's worth. */
+/**
+ * This rule's own max payout — one KPI's worth. Read straight off the payload:
+ * `maxEarning` is written from the KPI template's own maxPayout(config) (cap
+ * extension folded in), so it is the authoritative figure.
+ *
+ * Deriving it from the tiers instead is wrong for per-unit curves: a per-line or
+ * per-outlet rule stores each band's RATE in payoutValue (₹1/line, ₹2/outlet)
+ * rather than a cumulative payout, so scanning tiers reported the rate (₹1, ₹2)
+ * as the max. Only true % step-ups accumulate. Rules with no maxEarning report 0.
+ */
 function ruleMaxEarning(rule: RuleRecord): number {
-  // Normalize to the cumulative tier shape so the top tier reflects the real
-  // max earning whether the rule uses the new {min,payoutValue} format or legacy.
-  const tiers = normalizeRuleTiers(rule.ruleDefinition);
-  return tiers.reduce((max, t) => Math.max(max, t?.payout ?? 0), 0);
+  return rule.ruleDefinition?.maxEarning ?? 0;
 }
 
 export function ruleToProgramme(rule: RuleRecord): Programme {

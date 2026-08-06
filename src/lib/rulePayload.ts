@@ -15,7 +15,11 @@ import type {
   ProgrammePeriod,
 } from "@/components/wizard/builderState";
 import { KPI_TEMPLATE_MAP, type KpiTemplateId } from "@/components/kpi-library/registry";
-import { isJuniorEarningBasis, juniorEarningMultiplier } from "@/components/wizard/builderState";
+import {
+  isJuniorEarningBasis,
+  juniorEarningMultiplier,
+  MONTHS_BY_PERIOD,
+} from "@/components/wizard/builderState";
 import { getRolePayloadValue, getRoleDesignation } from "@/lib/saleshubApi";
 import { getTenantId } from "@/config/auth";
 import {
@@ -248,15 +252,6 @@ const FREQ_BY_PERIOD: Record<ProgrammePeriod, string> = {
   custom: "CUSTOM",
 };
 
-const MONTHS_BY_PERIOD: Record<ProgrammePeriod, number> = {
-  monthly: 1,
-  quarterly: 3,
-  "monthly-plus-quarterly": 3,
-  "half-yearly": 6,
-  annual: 12,
-  custom: 1,
-};
-
 // Best-effort mapping of an FMCG KPI template onto the engine's KPI type enum.
 const KPI_TYPE_BY_TEMPLATE: Partial<Record<KpiTemplateId, string>> = {
   nsv: "TARGET_VS_ACHIEVEMENT",
@@ -293,11 +288,18 @@ function periodRange(b: BasicsState): { from: string; till: string } {
   return { from, till: `${endYear}-${pad2(endMonth)}-${pad2(lastDay)}` };
 }
 
-/** "Zone: West" → { zone: ["West"] }; bare tags fall under "geography"; "All regions" is dropped. */
+/**
+ * "Zone: West" → { zone: ["West"] }; bare tags fall under "geography".
+ *
+ * The whole-country tags ("All India" / "All regions") are dropped: they impose no
+ * narrowing, and emitting them as a filter would ask the engine to match a literal
+ * "All India" attribute on every user — i.e. nobody. Their absence is what
+ * ruleToBuilder reads back as an all-India selection (see geographiesFor).
+ */
 function parseGeoTags(tags: string[] | undefined): Record<string, string[]> {
   const out: Record<string, string[]> = {};
   for (const tag of tags ?? []) {
-    if (!tag || /all regions/i.test(tag)) continue;
+    if (!tag || /^all (regions|india)$/i.test(tag.trim())) continue;
     const idx = tag.indexOf(":");
     const prop = idx >= 0 ? tag.slice(0, idx).trim().toLowerCase() : "geography";
     const val = idx >= 0 ? tag.slice(idx + 1).trim() : tag.trim();

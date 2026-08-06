@@ -5,15 +5,13 @@
 // anything this endpoint doesn't return is genuinely unknown and must read as
 // "Awaiting data" rather than being invented.
 //
-// Sits alongside the rules endpoint: a relative path proxied by Vite in dev,
-// overridable via VITE_ANALYTICS_ENDPOINT in production (mirrors
-// VITE_RULES_ENDPOINT in ruleApi.ts).
+// Sits alongside the rules endpoint, derived from the same incentive base URL
+// (see config/incentiveApi): a relative Vite-proxied path in dev, the real host
+// in production.
 
 import { getTenantId, getAuthorizationHeader } from "@/config/auth";
+import { ANALYTICS_ENDPOINT } from "@/config/incentiveApi";
 import { ApiError } from "@/lib/apiError";
-
-const ANALYTICS_ENDPOINT =
-  import.meta.env.VITE_ANALYTICS_ENDPOINT ?? "/incentive-api/v1/programs/analytics";
 
 /** Per-KPI attainment inside a programme. */
 export interface KpiPerformance {

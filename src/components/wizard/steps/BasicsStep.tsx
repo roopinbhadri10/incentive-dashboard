@@ -21,7 +21,7 @@ import type {
   AttainmentBasis,
   ProgrammePeriod,
 } from "../builderState";
-import { quarterForMonth } from "@/lib/programStore";
+import { programmeWindowLabel } from "../builderState";
 
 const NAME_MAX_LENGTH = 100;
 // Show the character counter once the name is within this many chars of the limit.
@@ -80,7 +80,6 @@ function InfoTip({ text }: { text: string }) {
 export function BasicsStep({ value, onChange }: Props) {
   const set = <K extends keyof BasicsState>(k: K, v: BasicsState[K]) =>
     onChange({ ...value, [k]: v });
-  const q = quarterForMonth(value.month, value.year);
   const currentYear = new Date().getFullYear();
   const yearOptions = [currentYear - 1, currentYear, currentYear + 1];
 
@@ -259,7 +258,15 @@ export function BasicsStep({ value, onChange }: Props) {
                     </Select>
                   )}
                   {value.period === "monthly" && (
-                    <div className="text-xs text-muted-foreground">→ <span className="font-medium text-foreground">{q.full}</span></div>
+                    // The window first, then the quarter as labelled context. A bare
+                    // "→ Q2 FY27 (Jul + Aug + Sep)" read as the programme's own span,
+                    // which for a monthly programme is the single month above. The
+                    // quarter comes from activeQuarter (the same calendar basis the
+                    // quarter picker in this card uses), not a fixed-April fiscal year.
+                    <div className="text-xs text-muted-foreground">
+                      Runs <span className="font-medium text-foreground">{programmeWindowLabel(value)}</span>
+                      {` · within Q${activeQuarter.id} ${value.year}`}
+                    </div>
                   )}
                 </div>
 

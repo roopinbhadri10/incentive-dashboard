@@ -88,7 +88,11 @@ const TEMPLATE_BY_KPI_TYPE: Record<string, KpiTemplateId> = {
   TARGET_VS_ACHIEVEMENT: "nsv",
   SALES_TARGET: "nsv",
   COVERAGE: "eco",
+  EFFECTIVE_COVERAGE: "eco",
+  PRODUCTIVE_COVERAGE: "eco",
+  SALES_PHASING: "phasing",
   UNIQUE_LINE_COUNT: "tlsd",
+  LINES_SOLD: "tlsd",
   DISTRIBUTION: "tlsd",
   COLLECTION: "collection",
   PRODUCTIVITY: "pcc",
@@ -106,6 +110,15 @@ const TAG_PREFIX: Record<string, string> = { zone: "Zone: ", state: "State: ", c
 // future non-geo field out too.
 const GEO_PROPS = new Set(["zone", "state", "city", "geography"]);
 
+/**
+ * What an unrestricted rule's Region selection reads as. The forward writes NO
+ * geography filter for an all-India programme (parseGeoTags drops the catch-all
+ * tag, and narrowing every user by a literal "All India" attribute would match
+ * nobody), so "no zone/state/city rule" IS how all-India is stored — see
+ * geographiesFor.
+ */
+const ALL_INDIA = "All India";
+
 /** Geography tags (IN conditions → regions, NOT_IN → exceptions). */
 function geoTagsFor(conditions: RuleCondition[], exceptions: boolean): string[] {
   const out: string[] = [];
@@ -116,6 +129,18 @@ function geoTagsFor(conditions: RuleCondition[], exceptions: boolean): string[] 
     for (const v of c.values ?? []) out.push(prefix ? `${prefix}${v}` : v);
   }
   return out;
+}
+
+/**
+ * The Region selection to reopen the Audience step with. A rule that carries no
+ * geographic narrowing covers the whole country, so it must come back as the
+ * explicit "All India" tag rather than an empty selection — the picker has no
+ * "unset" state, and `audienceComplete` requires at least one region, so an empty
+ * list left the cloned/edited programme stuck on Audience with the section blank.
+ */
+function geographiesFor(conditions: RuleCondition[]): string[] {
+  const tags = geoTagsFor(conditions, false);
+  return tags.length ? tags : [ALL_INDIA];
 }
 
 function channelsFor(conditions: RuleCondition[]): string[] {
@@ -185,19 +210,42 @@ export function rolesFromRule(rule: RuleRecord): string[] {
 }
 
 /**
- * Recover the exact KPI template. `kpiCode` is 1:1 with a template, so prefer it
- * (matched against the catalog's meta.kpiCode). Falls back to the lossy
- * kpiCombination → template map for older rules saved without a kpiCode
- * (kpiCombination is many-to-one, so e.g. nsv/phasing/qnsv all collapse to nsv).
+ * Recover the exact KPI template a rule scores.
+ *
+ * `ruleDefinition.kpiId` is the authority: it IS the catalog id (buildRulePayloads
+ * writes `meta.id` into it verbatim) and it is unique per KPI, so a rule that
+ * carries one needs no further guessing.
+ *
+ * A KPI *code* is NOT unique — the same string can name more than one KPI — so it
+ * can only ever be a fallback for rules with no kpiId (foreign producers, records
+ * written before kpiId existed). Two distinct traps live there:
+ *
+ *   • `ruleDefinition.kpiCode` carries the ENGINE base name (`meta.baseKpiName`,
+ *     e.g. UNIQUE_LINE_COUNT), not the catalog's own `meta.kpiCode` (LINES_SOLD),
+ *     so both namespaces have to be considered.
+ *   • Across those two namespaces codes collide: Lines Sold's base name
+ *     UNIQUE_LINE_COUNT is also ULPO's catalog kpiCode. Matching one namespace
+ *     alone silently resolved Lines Sold rules to ULPO, and taking the first hit
+ *     of many would make the answer depend on config ordering.
+ *
+ * So a code match is accepted only when it identifies exactly ONE KPI. An
+ * ambiguous code defers to the kpiCombination map — a deliberate, reviewed
+ * tie-break rather than a coin flip.
  */
 function resolveTemplateId(rule: RuleRecord): KpiTemplateId {
-  const kpiCode = rule.ruleDefinition?.kpiCode;
-  if (kpiCode) {
-    const match = Object.values(getKpiCatalog().entries).find(
-      (e) => e.meta.kpiCode === kpiCode
+  const catalog = getKpiCatalog().entries;
+
+  const kpiId = rule.ruleDefinition?.kpiId;
+  if (kpiId && catalog[kpiId]) return kpiId as KpiTemplateId;
+
+  const code = rule.ruleDefinition?.kpiCode;
+  if (code) {
+    const byCode = Object.values(catalog).filter(
+      (e) => e.meta.baseKpiName === code || e.meta.kpiCode === code,
     );
-    if (match) return match.meta.id as KpiTemplateId;
+    if (byCode.length === 1) return byCode[0].meta.id as KpiTemplateId;
   }
+
   return TEMPLATE_BY_KPI_TYPE[rule.kpiCombination ?? ""] ?? "nsv";
 }
 
@@ -427,7 +475,7 @@ export function ruleToBuilder(rule: RuleRecord): BuilderState {
       ...emptyBuilder.audience,
       division: divisionFor(conditions),
       roles,
-      geographies: geoTagsFor(conditions, false),
+      geographies: geographiesFor(conditions),
       geographyExceptions: geoTagsFor(conditions, true),
     },
     channels: channels.length ? channels : emptyBuilder.channels,

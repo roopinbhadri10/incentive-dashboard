@@ -51,6 +51,135 @@ describe("ruleToBuilder", () => {
     expect(ruleToBuilder(rule).programKpis[0].templateId).toBe("phasing");
   });
 
+  it("resolves every KPI of a published programme from ruleDefinition.kpiId", () => {
+    // Regression: cloning a 5-KPI programme reopened with the wrong KPIs. The engine
+    // returns `ruleDefinition.kpiCode` as the BASE name (what kpiCombination carries),
+    // not the catalog's own kpiCode, so matching it against meta.kpiCode resolved
+    // Lines Sold (base UNIQUE_LINE_COUNT) to ULPO — whose catalog kpiCode is also
+    // UNIQUE_LINE_COUNT — and dropped Productive Coverage + Sales Phasing to the
+    // "nsv" default. kpiId is the catalog id verbatim, so it settles all five.
+    const rule = (kpiId: string, kpiCode: string, kpiCombination: string): RuleRecord => ({
+      ruleName: "Test MR 06 Aug",
+      calculationFrequency: "MONTHLY",
+      kpiCombination,
+      effectiveFrom: "2026-07-01",
+      // No kpiConfig.templateConfig / templateId — the engine strips them.
+      ruleDefinition: { kpiId, kpiCode, tiers: [] },
+    });
+    const kpis = rulesToBuilder([
+      rule("tlsd", "UNIQUE_LINE_COUNT", "UNIQUE_LINE_COUNT"),
+      rule("sub_db_billing", "SUB_DB_BILLING", "SUB_DB_BILLING"),
+      rule("eco", "EFFECTIVE_COVERAGE", "EFFECTIVE_COVERAGE"),
+      rule("phasing", "TARGET_VS_ACHIEVEMENT", "TARGET_VS_ACHIEVEMENT"),
+      rule("nsv", "TARGET_VS_ACHIEVEMENT", "TARGET_VS_ACHIEVEMENT"),
+    ]).programKpis;
+    expect(kpis.map((k) => k.templateId)).toEqual([
+      "tlsd",
+      "sub_db_billing",
+      "eco",
+      "phasing",
+      "nsv",
+    ]);
+  });
+
+  it("prefers kpiId over a kpiCode that collides with another KPI's catalog code", () => {
+    // ULPO's catalog kpiCode IS "UNIQUE_LINE_COUNT" — the same string Lines Sold
+    // reports as its engine base name. Only kpiId separates the two.
+    const linesSold: RuleRecord = {
+      ruleName: "Lines Sold",
+      calculationFrequency: "MONTHLY",
+      kpiCombination: "UNIQUE_LINE_COUNT",
+      effectiveFrom: "2026-07-01",
+      ruleDefinition: { kpiId: "tlsd", kpiCode: "UNIQUE_LINE_COUNT", kpiName: "Lines Sold" },
+    };
+    expect(ruleToBuilder(linesSold).programKpis[0].templateId).toBe("tlsd");
+    // And a genuine ULPO rule still resolves to ULPO.
+    const ulpo: RuleRecord = {
+      ...linesSold,
+      ruleDefinition: { kpiId: "ulpo", kpiCode: "UNIQUE_LINE_COUNT" },
+    };
+    expect(ruleToBuilder(ulpo).programKpis[0].templateId).toBe("ulpo");
+  });
+
+  it("refuses to guess from an ambiguous code, deferring to the kpiCombination map", () => {
+    // "UNIQUE_LINE_COUNT" names two KPIs — it is Lines Sold's engine base name AND
+    // ULPO's catalog kpiCode. With no kpiId to settle it, the answer must come from
+    // the reviewed kpiCombination map, not from whichever entry the config happens
+    // to list first (which is what silently mis-resolved these rules).
+    const rule: RuleRecord = {
+      ruleName: "No kpiId",
+      calculationFrequency: "MONTHLY",
+      kpiCombination: "UNIQUE_LINE_COUNT",
+      effectiveFrom: "2026-07-01",
+      ruleDefinition: { kpiCode: "UNIQUE_LINE_COUNT" },
+    };
+    expect(ruleToBuilder(rule).programKpis[0].templateId).toBe("tlsd");
+  });
+
+  it("ignores a kpiId the catalog doesn't know, falling through to the code", () => {
+    const rule: RuleRecord = {
+      ruleName: "Foreign producer",
+      calculationFrequency: "MONTHLY",
+      kpiCombination: "SUB_DB_BILLING",
+      effectiveFrom: "2026-07-01",
+      ruleDefinition: { kpiId: "not_a_catalog_kpi", kpiCode: "SUB_DB_BILLING" },
+    };
+    expect(ruleToBuilder(rule).programKpis[0].templateId).toBe("sub_db_billing");
+  });
+
+  it("reopens an unrestricted rule with All India selected, not an empty Region", () => {
+    // An all-India programme writes no zone/state/city filter (there is nothing to
+    // narrow), so its absence must read back as the explicit "All India" tag —
+    // otherwise clone/edit lands on the Audience step with Region blank and
+    // audienceComplete false, which is what blocked the wizard.
+    const rule: RuleRecord = {
+      ruleName: "Test MR 06 Aug",
+      calculationFrequency: "MONTHLY",
+      kpiCombination: "TARGET_VS_ACHIEVEMENT",
+      effectiveFrom: "2026-07-01",
+      applicabilityCriteria: {
+        user_filters: {
+          operator: "AND",
+          rules: [
+            { field: "designation", op: "EQUALS", value: "mr" },
+            { field: "salesOrg", op: "EQUALS", value: "CCD" },
+          ],
+        },
+        outlet_filters: {
+          operator: "AND",
+          rules: [{ field: "marketType", op: "EQUALS", value: "URBAN" }],
+        },
+      },
+    };
+    const b = ruleToBuilder(rule);
+    expect(b.audience.geographies).toEqual(["All India"]);
+    expect(b.audience.geographyExceptions).toEqual([]);
+    // The rest of the audience still comes through.
+    expect(b.audience.division).toBe("CCD");
+    expect(b.audience.roles).toEqual(["mr"]);
+  });
+
+  it("keeps real regions rather than overriding them with All India", () => {
+    const rule: RuleRecord = {
+      ruleName: "West only",
+      calculationFrequency: "MONTHLY",
+      kpiCombination: "TARGET_VS_ACHIEVEMENT",
+      effectiveFrom: "2026-07-01",
+      applicabilityCriteria: {
+        user_filters: {
+          operator: "AND",
+          rules: [
+            { field: "zone", op: "IN", value: ["West"] },
+            { field: "state", op: "NOT_IN", value: ["Goa"] },
+          ],
+        },
+      },
+    };
+    const b = ruleToBuilder(rule);
+    expect(b.audience.geographies).toEqual(["Zone: West"]);
+    expect(b.audience.geographyExceptions).toEqual(["State: Goa"]);
+  });
+
   it("recovers the role from applicabilityCriteria when the engine dropped kpiConfig", () => {
     // The engine doesn't reliably preserve the verbatim kpiConfig (it returns a
     // null kpiConfig for some rules), so the role must be recoverable from the
@@ -69,8 +198,9 @@ describe("ruleToBuilder", () => {
     };
     const b = ruleToBuilder(rule);
     expect(b.audience.roles).toEqual(["MR"]);
-    // Role-related fields (marketType) must NOT leak into the Region picker.
-    expect(b.audience.geographies).toEqual([]);
+    // Role-related fields (marketType) must NOT leak into the Region picker. With no
+    // geographic narrowing left, the rule covers the whole country → "All India".
+    expect(b.audience.geographies).toEqual(["All India"]);
     expect(b.audience.geographyExceptions).toEqual([]);
   });
 

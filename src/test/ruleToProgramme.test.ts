@@ -15,6 +15,7 @@ const baseRule: RuleRecord = {
   kpiConditions: { minAchievementPct: 60 },
   ruleDefinition: {
     payoutType: "CASH",
+    maxEarning: 3000,
     tiers: [
       { minVal: 0, maxVal: 80, payout: 0 },
       { minVal: 80, maxVal: 100, payout: 1500 },
@@ -33,10 +34,33 @@ describe("ruleToProgramme", () => {
     expect(p.name).toBe("June Sales Target Incentive");
     expect(p.status).toBe("draft");
     expect(p.period).toEqual({ month: 6, year: 2026, isQ1: false });
-    expect(p.maxMonthlyEarning).toBe(3000); // top tier payout
+    expect(p.maxMonthlyEarning).toBe(3000); // ruleDefinition.maxEarning
     expect(p.gates.nsvMinPct).toBe(60);
     expect(p.channel).toBe("CCD"); // no division in criteria → default
     expect(p.createdAt).toBe("2026-06-06T18:01:10.638");
+  });
+
+  it("reads maxEarning off the payload rather than deriving it from the tiers", () => {
+    // Per-unit curves (per-line, per-outlet) store each band's RATE in payoutValue,
+    // not a cumulative payout — ₹1/line here. Scanning tiers for the largest payout
+    // reported that rate (₹1) as the KPI's max instead of the real ₹2500.
+    const perLine: NonNullable<RuleRecord["ruleDefinition"]> = {
+      kpiId: "tlsd",
+      kpiName: "Lines Sold",
+      maxEarning: 2500,
+      lineBasedEarning: true,
+      stepUpBy1Percent: true,
+      tiers: [
+        { min: 100, max: 2500, payoutType: "FIXED", payoutValue: 1 },
+        { min: 2500, payoutType: "FIXED", payoutValue: 0 },
+      ],
+    };
+    expect(ruleToProgramme({ ...baseRule, ruleDefinition: perLine }).maxMonthlyEarning).toBe(2500);
+  });
+
+  it("reports 0 when the payload carries no maxEarning", () => {
+    const { maxEarning: _omitted, ...noMax } = baseRule.ruleDefinition!;
+    expect(ruleToProgramme({ ...baseRule, ruleDefinition: noMax }).maxMonthlyEarning).toBe(0);
   });
 
   it('reads a published rule (status "APPROVED") as active, not draft', () => {
@@ -93,6 +117,7 @@ describe("rulesToProgrammes — one row per programme", () => {
     ruleDefinition: {
       kpiId: `kpi_${n}`,
       kpiName: `KPI ${n}`,
+      maxEarning: max,
       tiers: [
         { minVal: 0, maxVal: 80, payout: 0 },
         { minVal: 80, maxVal: 9999, payout: max },
@@ -140,7 +165,7 @@ describe("rulesToProgrammes — one row per programme", () => {
       ...baseRule,
       id: `legacy-${n}`,
       programId: undefined,
-      ruleDefinition: { kpiName: `KPI ${n}`, tiers: [{ minVal: 80, maxVal: 9999, payout: 700 }] },
+      ruleDefinition: { kpiName: `KPI ${n}`, maxEarning: 700, tiers: [{ minVal: 80, maxVal: 9999, payout: 700 }] },
     });
     const programmes = rulesToProgrammes([legacy(1), legacy(2)]);
     expect(programmes).toHaveLength(1);

@@ -30,6 +30,80 @@ export interface BasicsState {
   year: number;
 }
 
+/**
+ * How many months each period spans. The single source of truth for the length of
+ * a programme's window: rulePayload's periodRange publishes exactly this span, and
+ * programmeWindowLabel describes exactly this span, so what the wizard shows and
+ * what the engine is told can't drift apart.
+ */
+export const MONTHS_BY_PERIOD: Record<ProgrammePeriod, number> = {
+  monthly: 1,
+  quarterly: 3,
+  "monthly-plus-quarterly": 3,
+  "half-yearly": 6,
+  annual: 12,
+  custom: 1,
+};
+
+const MONTH_NAMES = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+/** First month (1-12) of the programme year — April-ish for a fiscal calendar. */
+function yearStartMonth(calendar: CalendarBasis): number {
+  return calendar.kind === "fiscal" ? calendar.startMonth : 1;
+}
+
+/**
+ * Human label for the window a programme actually runs over.
+ *
+ * Derived from `period` + `month`, never from the month alone: a MONTHLY programme
+ * for Sep runs in Sep, so labelling it with the fiscal quarter that Sep happens to
+ * sit in ("Q2 FY27 (Jul + Aug + Sep)") claimed a 3-month window the programme
+ * neither has nor is published with. Reads the span off MONTHS_BY_PERIOD, so the
+ * label always describes the same window periodRange sends to the engine.
+ *
+ * A 3-month window that starts on one of the calendar's own quarter boundaries
+ * also gets its quarter number; an unaligned one is described by its months alone
+ * rather than being rounded to a quarter it doesn't cover.
+ */
+export function programmeWindowLabel(b: BasicsState): string {
+  if (b.period === "custom" && b.customStart && b.customEnd) {
+    return `${b.customStart} → ${b.customEnd}`;
+  }
+  const span = MONTHS_BY_PERIOD[b.period] ?? 1;
+  // Month `b.month` plus `offset` months, rolling the year over at December.
+  const at = (offset: number) => {
+    const idx = b.month - 1 + offset;
+    return { name: MONTH_NAMES[idx % 12], year: b.year + Math.floor(idx / 12) };
+  };
+  const start = at(0);
+  if (span === 1) return `${start.name} ${start.year}`;
+
+  const end = at(span - 1);
+  if (span === 3) {
+    const offset = (b.month - yearStartMonth(b.calendar) + 12) % 12;
+    if (offset % 3 === 0) {
+      const months = [0, 1, 2].map((i) => at(i).name).join(" + ");
+      return `Q${offset / 3 + 1} ${start.year} (${months})`;
+    }
+  }
+  return `${start.name} ${start.year} → ${end.name} ${end.year}`;
+}
+
+/** When the programme's window opens — "Sep 2026". Reads inline in prose. */
+export function programmeStartLabel(b: BasicsState): string {
+  if (b.period === "custom" && b.customStart) return b.customStart;
+  return `${MONTH_NAMES[(b.month - 1) % 12]} ${b.year}`;
+}
+
+/** True when the programme's window is a single month, so "Month" names it. */
+export function isSingleMonthWindow(b: BasicsState): boolean {
+  if (b.period === "custom") return false;
+  return (MONTHS_BY_PERIOD[b.period] ?? 1) === 1;
+}
+
 export type Channel = "CCD" | "HCD";
 
 export interface AudienceV2State {

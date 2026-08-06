@@ -5,9 +5,13 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { AlertTriangle, ChevronUp, ChevronDown, Trash2, Pencil, CheckCircle2 } from "lucide-react";
 import type { BuilderState, ProgramKpi, KpiGroup } from "../builderState";
+import {
+  isSingleMonthWindow,
+  programmeStartLabel,
+  programmeWindowLabel,
+} from "../builderState";
 import { KPI_TEMPLATE_MAP, kpiDisplayName } from "@/components/kpi-library/registry";
 import { ConfigDrivenKpiCard } from "@/components/kpi-library/ConfigDrivenKpiCard";
-import { quarterForMonth } from "@/lib/programStore";
 import { AudienceContextChip } from "../AudienceContextChip";
 import { WizardAddButton } from "../ui/WizardAddButton";
 
@@ -26,7 +30,6 @@ const fmt = (n: number) => `₹${n.toLocaleString("en-IN")}`;
 
 export function ReviewSimulateStep({ state, onKpisChange, onJumpToAddKpi, onEditStep }: Props) {
   const { basics, audience, programKpis, gates } = state;
-  const q = quarterForMonth(basics.month, basics.year);
   const [expanded, setExpanded] = useState<string | null>(null);
 
   let monthlyTotal = 0;
@@ -122,7 +125,8 @@ export function ReviewSimulateStep({ state, onKpisChange, onJumpToAddKpi, onEdit
               </h3>
               <p className="text-xs text-amber-900/80 dark:text-amber-200/80">
                 The programme is fully configured, but targets for the following KPIs are marked
-                "upload later". They must be uploaded before {q.label} starts, otherwise these KPIs
+                "upload later". They must be uploaded before {programmeStartLabel(basics)} starts,
+                otherwise these KPIs
                 will not pay out.
               </p>
               <ul className="text-xs text-amber-900 dark:text-amber-200 list-disc list-inside pt-1">
@@ -157,7 +161,12 @@ export function ReviewSimulateStep({ state, onKpisChange, onJumpToAddKpi, onEdit
           {[
             { label: "Name", value: basics.name || "—" },
             { label: "Period", value: basics.period },
-            { label: "Month", value: q.full },
+            // The window the programme actually runs over — a monthly programme
+            // must not be summarised as the quarter its month falls in.
+            {
+              label: isSingleMonthWindow(basics) ? "Month" : "Programme window",
+              value: programmeWindowLabel(basics),
+            },
             { label: "Attainment basis", value: basics.attainmentBasis },
             { label: "Currency", value: basics.currency },
             { label: "Payout frequency", value: basics.payoutFrequency },

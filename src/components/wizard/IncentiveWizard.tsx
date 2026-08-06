@@ -7,7 +7,12 @@ import { AudienceV2Step, isAudienceV2Complete } from "./steps/AudienceV2Step";
 import { ProgramKpiStep } from "./steps/ProgramKpiStep";
 import { GateRulesStep } from "./steps/GateRulesStep";
 import { ReviewSimulateStep } from "./steps/ReviewSimulateStep";
-import { emptyBuilder, type BuilderState, type WizardPrefill } from "./builderState";
+import {
+  emptyBuilder,
+  programmeWindowLabel,
+  type BuilderState,
+  type WizardPrefill,
+} from "./builderState";
 import { ArrowLeft, ArrowRight, Check, Info, Loader2, Rocket, Save } from "lucide-react";
 import {
   upsertDraft,
@@ -17,7 +22,7 @@ import {
   type WizardDraft,
 } from "@/lib/wizardDraftStore";
 import { useToast } from "@/hooks/use-toast";
-import { saveProgram, newProgramId, quarterForMonth } from "@/lib/programStore";
+import { saveProgram, newProgramId } from "@/lib/programStore";
 import { buildRulePayloads } from "@/lib/rulePayload";
 import { isCapInvalid } from "@/components/kpi-library/capValidation";
 import { submitRules, updateRule, archiveRule } from "@/lib/ruleApi";
@@ -157,7 +162,6 @@ export function IncentiveWizard({ onBack, prefill, onPublished }: IncentiveWizar
   const goLive = async () => {
     if (publishingRef.current) return;
     publishingRef.current = true;
-    const q = quarterForMonth(state.basics.month, state.basics.year);
     saveProgram({
       id: newProgramId(),
       name: state.basics.name || "Untitled programme",
@@ -166,7 +170,9 @@ export function IncentiveWizard({ onBack, prefill, onPublished }: IncentiveWizar
       geographies: state.audience.geographies,
       geographyExceptions: state.audience.geographyExceptions,
       monthYear: { month: state.basics.month, year: state.basics.year },
-      quarterLabel: q.full,
+      // The window the programme runs over, not the quarter its month sits in —
+      // ProgramDetailView renders this under a "Month" heading.
+      quarterLabel: programmeWindowLabel(state.basics),
       attainmentBasis: state.basics.attainmentBasis,
       currency: state.basics.currency,
       payoutFrequency: state.basics.payoutFrequency,

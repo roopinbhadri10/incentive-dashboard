@@ -1,15 +1,14 @@
 // Thin client for the incentive rules engine (`GET` / `POST /v1/rules`).
 //
-// In dev the default endpoint is a relative path proxied by Vite to
-// https://incentive-uat.salescode.ai (see `server.proxy` in vite.config.ts),
-// which avoids browser CORS errors. Override the endpoint with
-// VITE_RULES_ENDPOINT. Tenant + auth come from the parent portal (config/auth).
+// The endpoint is derived from the one incentive base URL (see
+// config/incentiveApi), which in dev is a relative path proxied by Vite to
+// https://incentive-uat.salescode.ai to avoid browser CORS errors.
+// Tenant + auth come from the parent portal (config/auth).
 
 import type { RuleApiPayload } from "./rulePayload";
 import { getTenantId, getAuthorizationHeader } from "@/config/auth";
+import { RULES_ENDPOINT } from "@/config/incentiveApi";
 import { ApiError } from "@/lib/apiError";
-
-const RULES_ENDPOINT = import.meta.env.VITE_RULES_ENDPOINT ?? "/incentive-api/v1/rules";
 
 /**
  * Headers for rules-engine calls. Tenant + auth come from the parent portal
