@@ -2,18 +2,24 @@
 // by the shell at mount + on each `shell:navigate` event) to this plugin's
 // internal MemoryRouter path.
 export const SLUG_TO_VIEW: Record<string, string> = {
-  programs: "/programs",
+  // Campaigns — one slug per status the programmes list filters by. The
+  // `:status` segment is what drives that filter (see ProgramsRoute).
+  "campaigns-all": "/campaigns/all",
+  "campaigns-active": "/campaigns/active",
+  "campaigns-scheduled": "/campaigns/scheduled",
+  "campaigns-draft": "/campaigns/draft",
   "campaigns-completed": "/campaigns/completed",
-  "campaigns-drafts": "/campaigns/drafts",
+  "campaigns-archived": "/campaigns/inactive",
   "clone-programs": "/programs", // matches the standalone app's "Clone programs" href
   wizard: "/create/wizard",
-  performance: "/analytics/performance",
-  roi: "/analytics/roi",
+  analytics: "/analytics",
+  "payout-management": "/payout-management",
   reports: "/reports",
   users: "/users",
+  "users-directory": "/users-directory",
 };
 
-export const DEFAULT_VIEW = "/programs";
+export const DEFAULT_VIEW = "/campaigns/all";
 
 export function slugToPath(slug: string | undefined | null): string {
   if (!slug) return DEFAULT_VIEW;

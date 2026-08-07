@@ -19,27 +19,27 @@ function setup(initialSlug: string, productSlug = "sales-incentive") {
 
 describe("ShellNavBridge", () => {
   it("routes to the initial slug on mount", () => {
-    setup("performance");
-    expect(screen.getByTestId("path").textContent).toBe("/analytics/performance");
+    setup("payout-management");
+    expect(screen.getByTestId("path").textContent).toBe("/payout-management");
   });
 
   it("routes on shell:navigate for this product", () => {
-    setup("programs");
+    setup("campaigns-all");
     act(() => {
       window.dispatchEvent(
-        new CustomEvent("shell:navigate", { detail: { productSlug: "sales-incentive", slug: "roi" } }),
+        new CustomEvent("shell:navigate", { detail: { productSlug: "sales-incentive", slug: "analytics" } }),
       );
     });
-    expect(screen.getByTestId("path").textContent).toBe("/analytics/roi");
+    expect(screen.getByTestId("path").textContent).toBe("/analytics");
   });
 
   it("ignores shell:navigate for a different product", () => {
-    setup("programs");
+    setup("campaigns-all");
     act(() => {
       window.dispatchEvent(
-        new CustomEvent("shell:navigate", { detail: { productSlug: "sfa", slug: "roi" } }),
+        new CustomEvent("shell:navigate", { detail: { productSlug: "sfa", slug: "analytics" } }),
       );
     });
-    expect(screen.getByTestId("path").textContent).toBe("/programs");
+    expect(screen.getByTestId("path").textContent).toBe("/campaigns/all");
   });
 });

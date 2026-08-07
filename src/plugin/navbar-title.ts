@@ -2,16 +2,25 @@
 // top NavBar (left slot). Mirrors the section names in the plugin manifest so the
 // bar reads the same as the sidebar the user clicked from.
 
+// Order matters: the first match wins, so narrower paths come before the
+// prefixes that would also match them (/users-directory before /users).
 const PATH_TITLES: Array<[test: RegExp, title: string]> = [
+  [/^\/programs\/[^/]+\/analytics\b/, "Programme Analytics"],
   [/^\/programs\b/, "Campaigns"],
+  [/^\/campaigns\/active\b/, "Active Campaigns"],
+  [/^\/campaigns\/scheduled\b/, "Scheduled Campaigns"],
+  [/^\/campaigns\/draft\b/, "Draft Campaigns"],
   [/^\/campaigns\/completed\b/, "Completed Campaigns"],
-  [/^\/campaigns\/drafts\b/, "Draft Campaigns"],
+  [/^\/campaigns\/inactive\b/, "Archived Campaigns"],
+  [/^\/campaigns\b/, "Campaigns"],
   [/^\/create\/wizard\b/, "Create Program"],
   [/^\/create\b/, "Create Program"],
-  [/^\/analytics\/performance\b/, "Performance"],
-  [/^\/analytics\/roi\b/, "ROI Analysis"],
+  [/^\/clone\b/, "Clone Program"],
   [/^\/analytics\b/, "Analytics"],
+  [/^\/payout-management\b/, "Payout Management"],
+  [/^\/kpi-library\b/, "KPI Library"],
   [/^\/reports\b/, "Reports"],
+  [/^\/users-directory\b/, "Users Directory"],
   [/^\/users\b/, "Users List"],
 ];
 

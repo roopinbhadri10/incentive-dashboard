@@ -5,7 +5,7 @@ import { SLUG_TO_VIEW } from "@/plugin/slug-routes";
 describe("incentive plugin manifest", () => {
   it("has the expected identity", () => {
     expect(manifest.id).toBe("plugin-incentive");
-    expect(manifest.defaultSidebarSlug).toBe("programs");
+    expect(manifest.defaultSidebarSlug).toBe("campaigns-all");
     expect(manifest.sidebar.length).toBeGreaterThan(0);
   });
 
@@ -15,21 +15,23 @@ describe("incentive plugin manifest", () => {
     }
   });
 
+  it("has no route mapped to a slug the sidebar dropped", () => {
+    // The reverse of the check above: a slug left in SLUG_TO_VIEW after its
+    // sidebar row is gone is unreachable, and hides that a page lost its nav.
+    for (const slug of Object.keys(SLUG_TO_VIEW)) {
+      expect(NAV_SLUGS, `slug "${slug}" has a route but no sidebar row`).toContain(slug);
+    }
+  });
+
   it("the default slug is navigable", () => {
     expect(NAV_SLUGS).toContain(manifest.defaultSidebarSlug);
   });
 
   it("exposes the real app's top-level nav as shell GROUPS, not nested items", () => {
-    expect(manifest.sidebar.map((g) => g.group)).toEqual([
-      "CAMPAIGNS",
-      "CREATE",
-      "ANALYTICS",
-      "MAIN",
-    ]);
+    expect(manifest.sidebar.map((g) => g.group)).toEqual(["CAMPAIGNS", "CREATE", "MAIN"]);
     expect(manifest.sidebar.map((g) => g.groupLabel)).toEqual([
       "Campaigns",
       "Create",
-      "Analytics",
       "", // trailing utility items render with no group header
     ]);
     // The standalone rail's `_`-prefixed accordion parents are gone: nesting
