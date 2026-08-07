@@ -30,6 +30,9 @@ export default defineConfig({
     },
   },
   plugins: [react()],
+  define: {
+    __IS_PLUGIN__: JSON.stringify(false),
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
