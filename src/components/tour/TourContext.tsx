@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from "react";
+import { isPlugin } from "@/config/is-plugin";
 
 export interface TourStep {
   id: string;
@@ -86,6 +87,20 @@ export const TOUR_STEPS: TourStep[] = [
   },
 ];
 
+/**
+ * Steps anchored to AppSidebar, which the plugin build hides (the shell renders
+ * its own sidebar). Dropped in plugin mode so every step highlights something
+ * real instead of degrading to an unanchored centered card.
+ * `welcome` is kept deliberately — it has no anchor to lose and reads as the
+ * tour's intro dialog.
+ */
+const PLUGIN_HIDDEN_STEP_IDS = new Set(["campaigns", "create", "analytics"]);
+
+/** The step list actually driven by the provider for this build. */
+export const ACTIVE_TOUR_STEPS: TourStep[] = isPlugin
+  ? TOUR_STEPS.filter((s) => !PLUGIN_HIDDEN_STEP_IDS.has(s.id))
+  : TOUR_STEPS;
+
 interface TourContextValue {
   isActive: boolean;
   stepIndex: number;
@@ -111,8 +126,11 @@ export function TourProvider({ children, onNavigate }: TourProviderProps) {
   const [isActive, setIsActive] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
 
-  // Auto-start on first visit
+  // Auto-start on first visit — never in plugin mode. Inside the shell the tour
+  // must only ever run from a deliberate click on the header's help icon, so
+  // opening the dashboard never triggers it. `start()` still works there.
   useEffect(() => {
+    if (isPlugin) return;
     const completed = localStorage.getItem(STORAGE_KEY);
     if (!completed) {
       // Small delay so layout settles
@@ -124,24 +142,28 @@ export function TourProvider({ children, onNavigate }: TourProviderProps) {
   // Navigate to the right view as steps change
   useEffect(() => {
     if (!isActive) return;
-    const step = TOUR_STEPS[stepIndex];
+    const step = ACTIVE_TOUR_STEPS[stepIndex];
     if (step) onNavigate(step.view);
   }, [isActive, stepIndex, onNavigate]);
 
+  // Explicit user action — allowed in both builds (see the auto-start note
+  // above: only the automatic first-visit trigger is suppressed in the plugin).
   const start = useCallback(() => {
     setStepIndex(0);
     setIsActive(true);
   }, []);
 
   const finish = useCallback(() => {
-    localStorage.setItem(STORAGE_KEY, "1");
+    // Plugin mode never auto-starts, so there is no "already seen" flag to set —
+    // and writing one would suppress the standalone app's first-visit tour.
+    if (!isPlugin) localStorage.setItem(STORAGE_KEY, "1");
     setIsActive(false);
     setStepIndex(0);
   }, []);
 
   const next = useCallback(() => {
     setStepIndex((i) => {
-      if (i >= TOUR_STEPS.length - 1) {
+      if (i >= ACTIVE_TOUR_STEPS.length - 1) {
         finish();
         return 0;
       }
@@ -158,20 +180,20 @@ export function TourProvider({ children, onNavigate }: TourProviderProps) {
   }, [finish]);
 
   const goToStep = useCallback((i: number) => {
-    setStepIndex(Math.max(0, Math.min(TOUR_STEPS.length - 1, i)));
+    setStepIndex(Math.max(0, Math.min(ACTIVE_TOUR_STEPS.length - 1, i)));
   }, []);
 
   const value = useMemo<TourContextValue>(
     () => ({
       isActive,
       stepIndex,
-      currentStep: isActive ? TOUR_STEPS[stepIndex] ?? null : null,
+      currentStep: isActive ? ACTIVE_TOUR_STEPS[stepIndex] ?? null : null,
       start,
       next,
       prev,
       skip,
       goToStep,
-      totalSteps: TOUR_STEPS.length,
+      totalSteps: ACTIVE_TOUR_STEPS.length,
     }),
     [isActive, stepIndex, start, next, prev, skip, goToStep],
   );

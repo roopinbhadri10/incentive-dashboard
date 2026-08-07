@@ -6,6 +6,8 @@ import { TourProvider } from "@/components/tour/TourContext";
 import { TourSpotlight } from "@/components/tour/TourSpotlight";
 import { useKpiCatalog } from "@/components/kpi-library/useKpiCatalog";
 import { fetchRolePayloadValues, fetchRoleDesignations } from "@/lib/saleshubApi";
+import { cn } from "@/lib/utils";
+import { isPlugin } from "@/config/is-plugin";
 
 /**
  * App shell shared by every in-app route: sidebar + header + the routed page
@@ -33,18 +35,26 @@ export function AppLayout() {
     fetchRoleDesignations().catch(() => { /* non-fatal */ });
   }, []);
 
-  return (
-    <TourProvider onNavigate={navigateTo}>
-      <div className="flex h-screen overflow-hidden bg-background">
-        <AppSidebar currentView={location.pathname} onNavigate={navigateTo} />
+  const content = (
+    <>
+      <div className={cn("flex overflow-hidden bg-background", isPlugin ? "h-full" : "h-screen")}>
+        {!isPlugin && <AppSidebar currentView={location.pathname} onNavigate={navigateTo} />}
         <div className="flex-1 flex flex-col overflow-hidden">
-          <AppHeader />
+          {!isPlugin && <AppHeader />}
           <main className="flex-1 overflow-hidden flex flex-col">
             <Outlet />
           </main>
         </div>
       </div>
       <TourSpotlight />
-    </TourProvider>
+    </>
   );
+
+  // In plugin mode the TourProvider is hoisted to PluginApp so that the header's
+  // replay-tour button — portaled into the shell's NavBar, outside this layout —
+  // shares the same tour state. Wrapping again here would give the pages a
+  // second, disconnected tour.
+  if (isPlugin) return content;
+
+  return <TourProvider onNavigate={navigateTo}>{content}</TourProvider>;
 }

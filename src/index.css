@@ -164,6 +164,17 @@
     @apply bg-background text-foreground font-sans antialiased;
   }
 
+  /* Embedded (plugin) build: the host shell owns <html>/<body>, so paint the
+     base surface + font onto the scoped mount wrapper. `.incentive-scope` is
+     absent in the standalone DOM, so this rule is inert there. In the plugin
+     build the CSS-var :root block is remapped onto `.incentive-scope` by the
+     postcss transform, so tokens resolve on this same element. */
+  .incentive-scope {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Poppins', sans-serif;
+    height: 100%;
+  }
+
   button,
   input,
   textarea,
