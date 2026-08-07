@@ -4,17 +4,29 @@
 // object's shape is load-bearing for rule-payload serialization, so it must come
 // out exactly as the flat `defaultConfig` did before the restructure.
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { buildCatalog } from "@/components/kpi-library/schema/kpiCatalog";
-import { DUMMY_KPI_METAS } from "@/components/kpi-library/schema/dummyKpiConfig";
+import { FIXTURE_KPI_METAS } from "./kpiCatalogFixture";
+
+describe("KPI catalog source", () => {
+  it("ships no bundled catalogue — it is empty until config installs one", async () => {
+    // A fresh module registry mimics a cold page load: KPIs come from the config
+    // API only, so nothing may be resolvable before useKpiCatalog installs it.
+    vi.resetModules();
+    const fresh = await import("@/components/kpi-library/schema/kpiCatalog");
+    expect(fresh.getKpiCatalog().entries).toEqual({});
+    expect(fresh.getKpiCatalog().templates).toEqual([]);
+    expect(fresh.isKpiCatalogLoaded()).toBe(false);
+  });
+});
 
 describe("buildCatalog — value-object reconstruction", () => {
-  const catalog = buildCatalog(DUMMY_KPI_METAS);
+  const catalog = buildCatalog(FIXTURE_KPI_METAS);
 
   it("reassembles each KPI's value object from base + section defaults", () => {
-    for (const meta of DUMMY_KPI_METAS) {
+    for (const meta of FIXTURE_KPI_METAS) {
       // Independent reconstruction (mirrors buildCatalog) to compare against.
-      const sections = (meta.defaultSection ?? []) as Array<
+      const sections = (meta.defaultSection ?? []) as unknown as Array<
         Record<string, unknown> & { kind: string; defaults?: Record<string, unknown> }
       >;
       const expected: Record<string, unknown> =
@@ -74,7 +86,7 @@ describe("buildCatalog — value-object reconstruction", () => {
 
   it("keeps every value-object key (no key lost to a section that owns none)", () => {
     // Every default that exists must survive into the cloned instance config.
-    for (const meta of DUMMY_KPI_METAS) {
+    for (const meta of FIXTURE_KPI_METAS) {
       const cfg = catalog.entries[meta.id].defaultConfig() as Record<string, unknown>;
       // Sanity: KPIs that have a slabs section expose `slabs`; gated KPIs expose gates.
       const kinds = new Set((meta.defaultSection ?? []).map((s) => s.kind));

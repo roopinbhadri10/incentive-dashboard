@@ -5,6 +5,8 @@
 //   VITE_SALESHUB_BASE_URL — defaults to the Vite dev proxy path
 
 import { getTenantId, getAuthorizationHeader } from "@/config/auth";
+import { INCENTIVE_CONFIG_BASE_URL } from "@/config/incentiveApi";
+import { ApiError } from "@/lib/apiError";
 
 // Defaults to the Vite dev-server proxy path (see vite.config.ts) so the
 // browser stays same-origin and avoids CORS. In production set
@@ -45,9 +47,7 @@ export async function fetchOutletStats(): Promise<OutletStats> {
 
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(
-      `SalesHub /outlets/stats responded ${res.status}${detail ? `: ${detail}` : ""}`
-    );
+    throw new ApiError(res.status, detail, "SalesHub /outlets/stats");
   }
 
   return res.json() as Promise<OutletStats>;
@@ -91,9 +91,7 @@ export async function fetchRoles(): Promise<SaleshubRole[]> {
 
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(
-      `SalesHub /org-types responded ${res.status}${detail ? `: ${detail}` : ""}`
-    );
+    throw new ApiError(res.status, detail, "SalesHub /org-types");
   }
 
   const data = await res.json();
@@ -150,9 +148,7 @@ export async function fetchLocations(
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(
-      `SalesHub /org/locations responded ${res.status}${detail ? `: ${detail}` : ""}`
-    );
+    throw new ApiError(res.status, detail, "SalesHub /org/locations");
   }
   const data = await res.json();
   return Array.isArray(data) ? data : [];
@@ -177,9 +173,7 @@ export async function fetchLocationTree(parentCode: string): Promise<LocationTre
   );
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(
-      `SalesHub /org/locations/tree responded ${res.status}${detail ? `: ${detail}` : ""}`
-    );
+    throw new ApiError(res.status, detail, "SalesHub /org/locations/tree");
   }
   const data = await res.json();
   return Array.isArray(data) ? data : [];
@@ -194,14 +188,8 @@ export async function fetchLocationTree(parentCode: string): Promise<LocationTre
 // a single config object per (domainName, domainType). Responses are cached for
 // the session so each config is fetched at most once.
 //
-// Override the config service base URL via VITE_INCENTIVE_CONFIG_BASE_URL.
-
-// Defaults to the Vite dev-server proxy path (see vite.config.ts) so the
-// browser stays same-origin and avoids CORS. In production set
-// VITE_INCENTIVE_CONFIG_BASE_URL to the real host (e.g.
-// https://incentive-uat.salescode.ai/v1).
-const INCENTIVE_CONFIG_BASE_URL =
-  import.meta.env.VITE_INCENTIVE_CONFIG_BASE_URL ?? "/incentive-api/v1";
+// The config service shares the incentive base URL with rules and analytics —
+// see config/incentiveApi for the single variable that sets it.
 
 const CONFIG_ENDPOINT = "/ui-configs";
 
@@ -307,7 +295,7 @@ export async function fetchConfigFeature<TValue = unknown>(
         `${INCENTIVE_CONFIG_BASE_URL}${CONFIG_ENDPOINT}?${qs}`,
         { headers: configHeaders, credentials: "include" }
       );
-      if (!res.ok) throw new Error(`config responded ${res.status}`);
+      if (!res.ok) throw new ApiError(res.status, "", "Config");
       return (await res.json()) as ConfigFeature;
     } catch (err) {
       console.warn(`fetchConfigFeature(${key}): API failed —`, err);

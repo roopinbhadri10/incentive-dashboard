@@ -157,12 +157,8 @@ export const mockPrograms: IncentiveProgram[] = [
     startDate: "01 Apr 2026",
     endDate: "30 Jun 2026",
     kpis: [
-      { name: "Volume", target: "200 cases/rep", weight: 25, attainment: 72, payoutTiers: [{ label: "Bronze", minAttainment: 80, maxAttainment: 100, payoutPerRep: 1250 }, { label: "Silver", minAttainment: 100, maxAttainment: 120, payoutPerRep: 2000 }, { label: "Gold", minAttainment: 120, maxAttainment: 150, payoutPerRep: 3000 }] },
-      { name: "Flavored Volume", target: "100 cases/rep", weight: 20, attainment: 68, payoutTiers: [{ label: "Bronze", minAttainment: 80, maxAttainment: 100, payoutPerRep: 1000 }, { label: "Silver", minAttainment: 100, maxAttainment: 120, payoutPerRep: 1600 }, { label: "Gold", minAttainment: 120, maxAttainment: 150, payoutPerRep: 2400 }] },
-      { name: "Juice Sales", target: "50 cases/rep", weight: 15, attainment: 81, payoutTiers: [{ label: "Bronze", minAttainment: 80, maxAttainment: 100, payoutPerRep: 750 }, { label: "Silver", minAttainment: 100, maxAttainment: 120, payoutPerRep: 1200 }, { label: "Gold", minAttainment: 120, maxAttainment: 150, payoutPerRep: 1800 }] },
-      { name: "Outlets Covered", target: "100 outlets/rep", weight: 20, attainment: 55, payoutTiers: [{ label: "Bronze", minAttainment: 80, maxAttainment: 100, payoutPerRep: 1000 }, { label: "Silver", minAttainment: 100, maxAttainment: 120, payoutPerRep: 1600 }, { label: "Gold", minAttainment: 120, maxAttainment: 150, payoutPerRep: 2400 }] },
-      { name: "Cooler Compliance", target: "80% compliance", weight: 10, attainment: 62, payoutTiers: [{ label: "Bronze", minAttainment: 80, maxAttainment: 100, payoutPerRep: 500 }, { label: "Silver", minAttainment: 100, maxAttainment: 120, payoutPerRep: 800 }, { label: "Gold", minAttainment: 120, maxAttainment: 150, payoutPerRep: 1200 }] },
-      { name: "Visit Compliance", target: "95% visits", weight: 10, attainment: 74, payoutTiers: [{ label: "Bronze", minAttainment: 80, maxAttainment: 100, payoutPerRep: 500 }, { label: "Silver", minAttainment: 100, maxAttainment: 120, payoutPerRep: 800 }, { label: "Gold", minAttainment: 120, maxAttainment: 150, payoutPerRep: 1200 }] },
+      { name: "Cola Volume", target: "200 cases/rep", weight: 60, attainment: 72, payoutTiers: [{ label: "Bronze", minAttainment: 80, maxAttainment: 100, payoutPerRep: 3000 }, { label: "Silver", minAttainment: 100, maxAttainment: 120, payoutPerRep: 4800 }, { label: "Gold", minAttainment: 120, maxAttainment: 150, payoutPerRep: 7200 }] },
+      { name: "Outlet Billing", target: "85% outlets billed", weight: 40, attainment: 62, payoutTiers: [{ label: "Bronze", minAttainment: 80, maxAttainment: 100, payoutPerRep: 2000 }, { label: "Silver", minAttainment: 100, maxAttainment: 120, payoutPerRep: 3200 }, { label: "Gold", minAttainment: 120, maxAttainment: 150, payoutPerRep: 4800 }] },
     ],
     coverageCount: "45 Reps",
     payoutMode: "Cash",
@@ -197,11 +193,8 @@ export const mockPrograms: IncentiveProgram[] = [
     startDate: "15 Apr 2026",
     endDate: "31 May 2026",
     kpis: [
-      { name: "Store Coverage", target: "85% stores", weight: 30, attainment: 48, payoutTiers: [{ label: "Tier 1", minAttainment: 70, maxAttainment: 90, payoutPerRep: 900 }, { label: "Tier 2", minAttainment: 90, maxAttainment: 110, payoutPerRep: 1800 }, { label: "Tier 3", minAttainment: 110, maxAttainment: 140, payoutPerRep: 3000 }] },
-      { name: "Sales-Weighted Coverage", target: "90% weighted coverage", weight: 20, attainment: 42, payoutTiers: [{ label: "Tier 1", minAttainment: 70, maxAttainment: 90, payoutPerRep: 600 }, { label: "Tier 2", minAttainment: 90, maxAttainment: 110, payoutPerRep: 1200 }, { label: "Tier 3", minAttainment: 110, maxAttainment: 140, payoutPerRep: 2000 }] },
-      { name: "Shelf Compliance", target: "95% compliance", weight: 20, attainment: 56, payoutTiers: [{ label: "Tier 1", minAttainment: 70, maxAttainment: 90, payoutPerRep: 600 }, { label: "Tier 2", minAttainment: 90, maxAttainment: 110, payoutPerRep: 1200 }, { label: "Tier 3", minAttainment: 110, maxAttainment: 140, payoutPerRep: 2000 }] },
-      { name: "Display Setup", target: "80% outlets", weight: 15, attainment: 34, payoutTiers: [{ label: "Tier 1", minAttainment: 70, maxAttainment: 90, payoutPerRep: 450 }, { label: "Tier 2", minAttainment: 90, maxAttainment: 110, payoutPerRep: 900 }, { label: "Tier 3", minAttainment: 110, maxAttainment: 140, payoutPerRep: 1500 }] },
-      { name: "Cooler Compliance", target: "85% compliance", weight: 15, attainment: 51, payoutTiers: [{ label: "Tier 1", minAttainment: 70, maxAttainment: 90, payoutPerRep: 450 }, { label: "Tier 2", minAttainment: 90, maxAttainment: 110, payoutPerRep: 900 }, { label: "Tier 3", minAttainment: 110, maxAttainment: 140, payoutPerRep: 1500 }] },
+      { name: "Numeric Distribution", target: "85% stores", weight: 60, attainment: 48, payoutTiers: [{ label: "Tier 1", minAttainment: 70, maxAttainment: 90, payoutPerRep: 1800 }, { label: "Tier 2", minAttainment: 90, maxAttainment: 110, payoutPerRep: 3600 }, { label: "Tier 3", minAttainment: 110, maxAttainment: 140, payoutPerRep: 6000 }] },
+      { name: "Planogram Compliance", target: "95% compliance", weight: 40, attainment: 42, payoutTiers: [{ label: "Tier 1", minAttainment: 70, maxAttainment: 90, payoutPerRep: 1200 }, { label: "Tier 2", minAttainment: 90, maxAttainment: 110, payoutPerRep: 2400 }, { label: "Tier 3", minAttainment: 110, maxAttainment: 140, payoutPerRep: 4000 }] },
     ],
     coverageCount: "38 Merchandisers",
     payoutMode: "Amazon Voucher",
@@ -215,7 +208,7 @@ export const mockPrograms: IncentiveProgram[] = [
     outletReach: 650,
     attainmentRate: "45%",
     allocatedBudget: "₹8L",
-    budgetUtilized: 45,
+    budgetUtilized: 67,
     skus: ["SP300", "SP500", "CC250", "FA250"],
     roi: "1.8x",
     incrementalSales: "₹14.4L",
@@ -235,11 +228,8 @@ export const mockPrograms: IncentiveProgram[] = [
     startDate: "01 May 2026",
     endDate: "30 Jun 2026",
     kpis: [
-      { name: "Volume", target: "800 cases/rep", weight: 30, attainment: 88, payoutTiers: [{ label: "Bronze", minAttainment: 80, maxAttainment: 100, payoutPerRep: 1800 }, { label: "Silver", minAttainment: 100, maxAttainment: 120, payoutPerRep: 3000 }, { label: "Gold", minAttainment: 120, maxAttainment: 150, payoutPerRep: 4500 }] },
-      { name: "Juice Sales", target: "200 cases/rep", weight: 20, attainment: 82, payoutTiers: [{ label: "Bronze", minAttainment: 80, maxAttainment: 100, payoutPerRep: 1200 }, { label: "Silver", minAttainment: 100, maxAttainment: 120, payoutPerRep: 2000 }, { label: "Gold", minAttainment: 120, maxAttainment: 150, payoutPerRep: 3000 }] },
-      { name: "Outlets Covered", target: "50 outlets/rep", weight: 20, attainment: 91, payoutTiers: [{ label: "Bronze", minAttainment: 80, maxAttainment: 100, payoutPerRep: 1200 }, { label: "Silver", minAttainment: 100, maxAttainment: 120, payoutPerRep: 2000 }, { label: "Gold", minAttainment: 120, maxAttainment: 150, payoutPerRep: 3000 }] },
-      { name: "New Outlets Added", target: "5 new outlets", weight: 15, attainment: 73, payoutTiers: [{ label: "Bronze", minAttainment: 80, maxAttainment: 100, payoutPerRep: 900 }, { label: "Silver", minAttainment: 100, maxAttainment: 120, payoutPerRep: 1500 }, { label: "Gold", minAttainment: 120, maxAttainment: 150, payoutPerRep: 2250 }] },
-      { name: "Visit Compliance", target: "95% visits", weight: 15, attainment: 79, payoutTiers: [{ label: "Bronze", minAttainment: 80, maxAttainment: 100, payoutPerRep: 900 }, { label: "Silver", minAttainment: 100, maxAttainment: 120, payoutPerRep: 1500 }, { label: "Gold", minAttainment: 120, maxAttainment: 150, payoutPerRep: 2250 }] },
+      { name: "Carbonated Volume", target: "800 cases/rep", weight: 60, attainment: 88, payoutTiers: [{ label: "Bronze", minAttainment: 80, maxAttainment: 100, payoutPerRep: 3600 }, { label: "Silver", minAttainment: 100, maxAttainment: 120, payoutPerRep: 6000 }, { label: "Gold", minAttainment: 120, maxAttainment: 150, payoutPerRep: 9000 }] },
+      { name: "Juice Volume", target: "200 cases/rep", weight: 40, attainment: 80, payoutTiers: [{ label: "Bronze", minAttainment: 80, maxAttainment: 100, payoutPerRep: 2400 }, { label: "Silver", minAttainment: 100, maxAttainment: 120, payoutPerRep: 4000 }, { label: "Gold", minAttainment: 120, maxAttainment: 150, payoutPerRep: 6000 }] },
     ],
     coverageCount: "52 Reps",
     payoutMode: "Cash",
@@ -273,11 +263,8 @@ export const mockPrograms: IncentiveProgram[] = [
     startDate: "10 Apr 2026",
     endDate: "15 Jun 2026",
     kpis: [
-      { name: "Volume", target: "150 cases/rep", weight: 25, attainment: 75, payoutTiers: [{ label: "Milestone 1", minAttainment: 60, maxAttainment: 80, payoutPerRep: 600 }, { label: "Milestone 2", minAttainment: 80, maxAttainment: 100, payoutPerRep: 1250 }, { label: "Milestone 3", minAttainment: 100, maxAttainment: 130, payoutPerRep: 2250 }] },
-      { name: "Juice Sales", target: "80 cases/rep", weight: 20, attainment: 70, payoutTiers: [{ label: "Milestone 1", minAttainment: 60, maxAttainment: 80, payoutPerRep: 500 }, { label: "Milestone 2", minAttainment: 80, maxAttainment: 100, payoutPerRep: 1000 }, { label: "Milestone 3", minAttainment: 100, maxAttainment: 130, payoutPerRep: 1800 }] },
-      { name: "Range per Outlet", target: "3 SKUs/outlet", weight: 20, attainment: 78, payoutTiers: [{ label: "Milestone 1", minAttainment: 60, maxAttainment: 80, payoutPerRep: 500 }, { label: "Milestone 2", minAttainment: 80, maxAttainment: 100, payoutPerRep: 1000 }, { label: "Milestone 3", minAttainment: 100, maxAttainment: 130, payoutPerRep: 1800 }] },
-      { name: "Outlets Covered", target: "25 outlets/rep", weight: 20, attainment: 65, payoutTiers: [{ label: "Milestone 1", minAttainment: 60, maxAttainment: 80, payoutPerRep: 500 }, { label: "Milestone 2", minAttainment: 80, maxAttainment: 100, payoutPerRep: 1000 }, { label: "Milestone 3", minAttainment: 100, maxAttainment: 130, payoutPerRep: 1800 }] },
-      { name: "Repeat Orders", target: "2x/month/outlet", weight: 15, attainment: 68, payoutTiers: [{ label: "Milestone 1", minAttainment: 60, maxAttainment: 80, payoutPerRep: 400 }, { label: "Milestone 2", minAttainment: 80, maxAttainment: 100, payoutPerRep: 750 }, { label: "Milestone 3", minAttainment: 100, maxAttainment: 130, payoutPerRep: 1350 }] },
+      { name: "Carbonated Volume", target: "150 cases/rep", weight: 60, attainment: 75, payoutTiers: [{ label: "Milestone 1", minAttainment: 60, maxAttainment: 80, payoutPerRep: 1500 }, { label: "Milestone 2", minAttainment: 80, maxAttainment: 100, payoutPerRep: 3000 }, { label: "Milestone 3", minAttainment: 100, maxAttainment: 130, payoutPerRep: 5400 }] },
+      { name: "Outlet Billing", target: "85% outlets billed", weight: 40, attainment: 68, payoutTiers: [{ label: "Milestone 1", minAttainment: 60, maxAttainment: 80, payoutPerRep: 1000 }, { label: "Milestone 2", minAttainment: 80, maxAttainment: 100, payoutPerRep: 2000 }, { label: "Milestone 3", minAttainment: 100, maxAttainment: 130, payoutPerRep: 3600 }] },
     ],
     coverageCount: "29 Reps",
     payoutMode: "Flipkart Voucher",
@@ -291,7 +278,7 @@ export const mockPrograms: IncentiveProgram[] = [
     outletReach: 380,
     attainmentRate: "72%",
     allocatedBudget: "₹5L",
-    budgetUtilized: 72,
+    budgetUtilized: 65,
     skus: ["CC250", "FA250", "MZ200", "SP300"],
     roi: "2.5x",
     incrementalSales: "₹12.5L",
@@ -566,6 +553,21 @@ export const mockLivePlans: IncentivePlan[] = [
     ],
   },
 ];
+
+// Programs surfaced in the Analytics section. Kept in lock-step with the
+// programmes listed under Create → Clone & Modify (`mockLivePlans`) so the
+// numbers across the two areas of the product stay coherent.
+export const ANALYTICS_PROGRAM_NAMES = [
+  "Q1 Sales Incentive — North GT",
+  "Apr–May MT Plan — West",
+  "Q2 Horeca Incentive — East",
+  "Q1 Volume Drive — South GT",
+] as const;
+
+export const analyticsPrograms: IncentiveProgram[] = mockPrograms.filter((p) =>
+  (ANALYTICS_PROGRAM_NAMES as readonly string[]).includes(p.name),
+);
+
 
 export const regions = ["North", "South", "East", "West"];
 export const channels = ["General Trade", "Modern Trade", "Wholesale", "Horeca", "E-Commerce"];
@@ -1239,7 +1241,7 @@ export const mockProgrammes: Programme[] = [
   {
     id: "EMI-HCD-MR-URB",
     name: "HCD MR — Urban",
-    status: "active",
+    status: "draft",
     channel: "HCD",
     role: "MR",
     segment: "urban",
@@ -1339,7 +1341,7 @@ export const mockProgrammes: Programme[] = [
   {
     id: "EMI-HCD-MR-RUR",
     name: "HCD MR — Rural",
-    status: "active",
+    status: "draft",
     channel: "HCD",
     role: "MR",
     segment: "rural",

@@ -30,6 +30,80 @@ export interface BasicsState {
   year: number;
 }
 
+/**
+ * How many months each period spans. The single source of truth for the length of
+ * a programme's window: rulePayload's periodRange publishes exactly this span, and
+ * programmeWindowLabel describes exactly this span, so what the wizard shows and
+ * what the engine is told can't drift apart.
+ */
+export const MONTHS_BY_PERIOD: Record<ProgrammePeriod, number> = {
+  monthly: 1,
+  quarterly: 3,
+  "monthly-plus-quarterly": 3,
+  "half-yearly": 6,
+  annual: 12,
+  custom: 1,
+};
+
+const MONTH_NAMES = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+/** First month (1-12) of the programme year — April-ish for a fiscal calendar. */
+function yearStartMonth(calendar: CalendarBasis): number {
+  return calendar.kind === "fiscal" ? calendar.startMonth : 1;
+}
+
+/**
+ * Human label for the window a programme actually runs over.
+ *
+ * Derived from `period` + `month`, never from the month alone: a MONTHLY programme
+ * for Sep runs in Sep, so labelling it with the fiscal quarter that Sep happens to
+ * sit in ("Q2 FY27 (Jul + Aug + Sep)") claimed a 3-month window the programme
+ * neither has nor is published with. Reads the span off MONTHS_BY_PERIOD, so the
+ * label always describes the same window periodRange sends to the engine.
+ *
+ * A 3-month window that starts on one of the calendar's own quarter boundaries
+ * also gets its quarter number; an unaligned one is described by its months alone
+ * rather than being rounded to a quarter it doesn't cover.
+ */
+export function programmeWindowLabel(b: BasicsState): string {
+  if (b.period === "custom" && b.customStart && b.customEnd) {
+    return `${b.customStart} → ${b.customEnd}`;
+  }
+  const span = MONTHS_BY_PERIOD[b.period] ?? 1;
+  // Month `b.month` plus `offset` months, rolling the year over at December.
+  const at = (offset: number) => {
+    const idx = b.month - 1 + offset;
+    return { name: MONTH_NAMES[idx % 12], year: b.year + Math.floor(idx / 12) };
+  };
+  const start = at(0);
+  if (span === 1) return `${start.name} ${start.year}`;
+
+  const end = at(span - 1);
+  if (span === 3) {
+    const offset = (b.month - yearStartMonth(b.calendar) + 12) % 12;
+    if (offset % 3 === 0) {
+      const months = [0, 1, 2].map((i) => at(i).name).join(" + ");
+      return `Q${offset / 3 + 1} ${start.year} (${months})`;
+    }
+  }
+  return `${start.name} ${start.year} → ${end.name} ${end.year}`;
+}
+
+/** When the programme's window opens — "Sep 2026". Reads inline in prose. */
+export function programmeStartLabel(b: BasicsState): string {
+  if (b.period === "custom" && b.customStart) return b.customStart;
+  return `${MONTH_NAMES[(b.month - 1) % 12]} ${b.year}`;
+}
+
+/** True when the programme's window is a single month, so "Month" names it. */
+export function isSingleMonthWindow(b: BasicsState): boolean {
+  if (b.period === "custom") return false;
+  return (MONTHS_BY_PERIOD[b.period] ?? 1) === 1;
+}
+
 export type Channel = "CCD" | "HCD";
 
 export interface AudienceV2State {
@@ -122,15 +196,20 @@ export interface KpiItem {
 
 // ─── Gate rules ───────────────────────────────────────────────────────────
 export type GateOperator = "lt" | "gt" | "eq" | "between";
+/** Territory scope for field-activity (HHD) metrics that vary by urban/rural days. */
+export type TerritoryFilter = "all" | "urban" | "rural";
 export interface GateCondition {
-  // Config-driven group key. "kpi" (a programme KPI) and "custom" (free-text)
-  // are special; everything else is a gate_rule_metric_group_configuration group.
+  // Config-driven group key. "kpi" (a programme KPI) is special; "nsv" is the
+  // always-available NSV metric; everything else is a
+  // gate_rule_metric_group_configuration group.
   metricGroup: string;
-  metric: string; // KPI id (kpi), gate code (metric group), or free text (custom)
+  metric: string; // KPI id (kpi), or gate code (metric group / nsv)
   operator: GateOperator;
   value: number;
   value2?: number; // for "between"
   unit: string;
+  /** Only for field-activity (HHD) metrics that support urban/rural split. */
+  territoryFilter?: TerritoryFilter;
 }
 export type GateConsequence =
   | { kind: "zero-all" }
@@ -190,17 +269,62 @@ export interface BuilderState {
  * template's prefilled config.
  */
 export interface WizardPrefill {
-  type?: "clone" | "template" | "clone-saved";
+  type?: "clone" | "template" | "clone-saved" | "draft";
   name?: string;
   builder?: BuilderState;
   startAtReview?: boolean;
-  /** Set on an edit flow: the id of the rule being edited. Present → publishing
-   *  PUTs that rule in place; absent → publishing POSTs a new rule. */
-  editRuleId?: string;
+  /** Set on an edit flow: the ids of the rules being edited — the engine keeps one
+   *  rule per KPI, so a programme has one id per KPI, in KPI order. Present →
+   *  publishing PUTs those rules in place (POSTing any KPI added during the edit,
+   *  archiving any rule whose KPI was removed); absent → publishing POSTs new rules. */
+  editRuleIds?: string[];
+  /** Resumed draft: its store id, so autosave keeps updating the same entry. */
+  draftId?: string;
+  /** Resumed draft: the step the user left off on. */
+  atStep?: number;
   [key: string]: unknown;
 }
 
 const _now = new Date();
+/* ─── Earning basis (role-aware KPIs) ─────────────────────────────────────── */
+
+/**
+ * KPIs that can pay a manager off their juniors instead of their own slabs.
+ * `own` / `juniors` are the values written to the KPI config's `role` field, so
+ * the selected basis is recoverable from config alone — shared by the KPI step's
+ * selector and the rules payload builder so the two can't drift apart.
+ */
+export const ROLE_AWARE_KPIS: Record<string, { own: string; juniors: string } | undefined> = {
+  eco: { own: "mr", juniors: "aso_ase" },
+  tlsd: { own: "mr", juniors: "aso_ase" },
+  dbb: { own: "mr", juniors: "aso_ase" },
+  qnsv: { own: "MR", juniors: "ASO" },
+};
+
+/**
+ * Default multiplier shown when the user hasn't touched the field. `qnsv` has no
+ * multiplier control (its payout is fixed), so it maps 1:1 onto the juniors'
+ * average; the others default to 3, matching the KPI step's displayed default.
+ */
+function defaultJuniorMultiplier(templateId: string): number {
+  return templateId === "qnsv" ? 1 : 3;
+}
+
+/** True when this KPI is set to pay off the juniors' average earning. */
+export function isJuniorEarningBasis(templateId: string, config: unknown): boolean {
+  const map = ROLE_AWARE_KPIS[templateId];
+  if (!map) return false;
+  return (config as { role?: string } | undefined)?.role === map.juniors;
+}
+
+/** Multiplier applied to the juniors' average earning. */
+export function juniorEarningMultiplier(templateId: string, config: unknown): number {
+  const raw = (config as { rateMultiplier?: number } | undefined)?.rateMultiplier;
+  return typeof raw === "number" && Number.isFinite(raw)
+    ? raw
+    : defaultJuniorMultiplier(templateId);
+}
+
 export const emptyBasics: BasicsState = {
   name: "",
   calendar: { kind: "standard" },

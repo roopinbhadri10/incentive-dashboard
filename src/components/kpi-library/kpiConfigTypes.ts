@@ -1,7 +1,7 @@
 // KPI config value-object TYPES and pure earning MATH.
 //
-// Default values no longer live here — they're pure data in
-// schema/kpiConfig.dummy.json (and ultimately the config API). This module only
+// Default values no longer live here — they're pure data served by the config
+// API (see schema/kpiConfigApi.ts). This module only
 // holds the TypeScript shapes the config value objects take (load-bearing for
 // serialization in src/lib/rulePayload.ts) and the math the compute registry
 // reuses by `computeId`.
@@ -79,6 +79,41 @@ export interface SimpleSlabConfig {
 export function simpleSlabMaxPayout(c: SimpleSlabConfig): number {
   if (!c.slabs.length) return 0;
   return [...c.slabs].sort((a, b) => a.threshold - b.threshold).at(-1)!.payout;
+}
+
+// ── Binary-threshold KPIs (Sub-DB Billing) ──────────────────────────────────
+// No slabs and no cap: one threshold, one flat payout. Below the threshold the
+// KPI pays ₹0, at or above it the full amount.
+export type BenchmarkType = "l3m" | "l6m" | "fixed";
+export type SubDbDataSource = "cdms" | "sfa" | "manual";
+
+export interface BinaryThresholdConfig {
+  benchmarkType: BenchmarkType;
+  /** Outlet count the rep must bill when benchmarkType === "fixed". */
+  fixedBenchmarkCount: number;
+  /** % of the benchmark that must be billed to earn. */
+  thresholdPct: number;
+  /** Flat ₹ paid once the threshold is met. */
+  payout: number;
+  dataSource: SubDbDataSource;
+  gatesEnabled: boolean;
+  gates: NsvTemplateConfig["gates"];
+  keyNotes?: string[];
+}
+
+const BENCHMARK_SHORT: Record<BenchmarkType, string> = {
+  l3m: "L3M benchmark",
+  l6m: "L6M benchmark",
+  fixed: "fixed target",
+};
+
+export function binaryThresholdMaxPayout(c: BinaryThresholdConfig): number {
+  return c.payout || 0;
+}
+
+export function binaryThresholdSummary(c: BinaryThresholdConfig): string {
+  const bench = BENCHMARK_SHORT[c.benchmarkType] ?? "benchmark";
+  return `${c.thresholdPct}% of ${bench} · ${fmt(binaryThresholdMaxPayout(c))} flat`;
 }
 
 // ── AI Recommended Order ─────────────────────────────────────────────────────

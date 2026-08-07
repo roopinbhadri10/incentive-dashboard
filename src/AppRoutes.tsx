@@ -8,8 +8,9 @@ import { QuickCloneRoute } from "@/routes/QuickCloneRoute";
 import { KpiLibraryPage } from "@/pages/KpiLibraryPage";
 import { ReportsPage } from "@/pages/ReportsPage";
 import { UsersListPage } from "@/pages/UsersListPage";
-import { PerformancePage } from "@/pages/PerformancePage";
-import { RoiPage } from "@/pages/RoiPage";
+import { UsersDirectoryPage } from "@/pages/UsersDirectoryPage";
+import { PayoutManagementPage } from "@/pages/PayoutManagementPage";
+import { AnalyticsPage } from "@/pages/AnalyticsPage";
 import NotFound from "@/pages/NotFound";
 
 /** The route tree shared by the standalone app (BrowserRouter) and the plugin
@@ -21,18 +22,26 @@ export function AppRoutes() {
         <Route index element={<Navigate to="/programs" replace />} />
         <Route path="/programs" element={<ProgramsRoute />} />
         <Route path="/programs/:id/analytics" element={<ProgramAnalyticsRoute />} />
-        <Route path="/campaigns/active" element={<ProgramsRoute />} />
-        <Route path="/campaigns/completed" element={<ProgramsRoute />} />
-        <Route path="/campaigns/drafts" element={<ProgramsRoute />} />
+        {/* Campaigns sidebar items are the programmes list filtered by status;
+            the :status segment drives the list's status filter. */}
+        <Route path="/campaigns/:status" element={<ProgramsRoute />} />
+        {/* Legacy plural path from the earlier nav. */}
+        <Route path="/campaigns/drafts" element={<Navigate to="/campaigns/draft" replace />} />
         <Route path="/create" element={<CreateHubRoute />} />
         <Route path="/create/wizard" element={<WizardRoute />} />
         <Route path="/clone/quick-review" element={<QuickCloneRoute />} />
         <Route path="/kpi-library" element={<KpiLibraryPage />} />
         <Route path="/reports" element={<ReportsPage />} />
+        <Route path="/payout-management" element={<PayoutManagementPage />} />
         <Route path="/users" element={<UsersListPage />} />
-        <Route path="/analytics/performance" element={<PerformancePage />} />
-        <Route path="/analytics/roi" element={<RoiPage />} />
+        <Route path="/users-directory" element={<UsersDirectoryPage />} />
+        <Route path="/analytics" element={<AnalyticsPage />} />
+        {/* Legacy analytics deep links now resolve to the unified page. */}
+        <Route path="/analytics/performance" element={<Navigate to="/analytics" replace />} />
+        <Route path="/analytics/cohort" element={<Navigate to="/analytics" replace />} />
+        <Route path="/analytics/roi" element={<Navigate to="/analytics" replace />} />
       </Route>
+      {/* Catch-all renders its own full-screen layout (no sidebar/header). */}
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

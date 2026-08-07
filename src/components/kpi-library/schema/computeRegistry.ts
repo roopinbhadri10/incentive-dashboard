@@ -6,7 +6,9 @@
 import { computeSlabEarnings, type NsvTemplateConfig } from "../nsvTypes";
 import {
   simpleSlabMaxPayout, aiRecoMaxPayout, aiRecoSummary,
+  binaryThresholdMaxPayout, binaryThresholdSummary,
   type SimpleSlabConfig, type EcoConfig, type LinesConfig, type AiRecommendedOrderConfig,
+  type BinaryThresholdConfig,
 } from "../kpiConfigTypes";
 import type { ComputeId } from "./kpiSchema";
 
@@ -145,6 +147,24 @@ const linesLadder: ComputeFn = {
   },
 };
 
+// Binary threshold (Sub-DB Billing) — two rungs, not a curve: ₹0 below the
+// threshold, the flat payout at or above it.
+const binaryThreshold: ComputeFn = {
+  ladder: (c) => {
+    const cfg = c as BinaryThresholdConfig;
+    return [
+      { label: `< ${cfg.thresholdPct}%`, value: 0 },
+      { label: `≥ ${cfg.thresholdPct}%`, value: binaryThresholdMaxPayout(cfg) },
+    ];
+  },
+  maxPayout: (c) => binaryThresholdMaxPayout(c as BinaryThresholdConfig),
+  header: (c) => ({
+    label: "Max earning",
+    value: fmt(binaryThresholdMaxPayout(c as BinaryThresholdConfig)),
+  }),
+  summarize: (c) => binaryThresholdSummary(c as BinaryThresholdConfig),
+};
+
 const aiReco: ComputeFn = {
   ladder: () => [], // the ai-reco section renders its own sub-editors
   maxPayout: (c) => aiRecoMaxPayout(c as AiRecommendedOrderConfig),
@@ -157,5 +177,6 @@ export const COMPUTE_REGISTRY: Record<ComputeId, ComputeFn> = {
   simpleLadder,
   ecoLadder,
   linesLadder,
+  binaryThreshold,
   aiReco,
 };

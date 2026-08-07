@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
+import { NumberInput } from "@/components/ui/number-input";
 import {
   ArrowRight,
   Sparkles,
@@ -485,12 +486,11 @@ export function CloneResultView({
                     </div>
                     {/* Editable weight — styled to look like an input, not text */}
                     <div className="relative flex items-center">
-                      <input
-                        type="number"
+                      <NumberInput
                         min={0}
                         max={100}
                         value={kpi.weight}
-                        onChange={e => updateKpiWeight(kpi.name, parseInt(e.target.value) || 0)}
+                        onValueChange={weight => updateKpiWeight(kpi.name, weight)}
                         disabled={locked}
                         className={cn(
                           "w-12 h-7 text-xs font-bold tabular-nums text-right pr-4 pl-1.5 rounded-md border bg-background transition-colors",

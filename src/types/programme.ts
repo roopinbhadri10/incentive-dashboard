@@ -113,6 +113,18 @@ export interface GateConditions {
 
 // ─── Full programme ─────────────────────────────────────────────────────────
 
+/** One KPI of a programme, as recovered from the engine rule that scores it. */
+export interface ProgrammeKpiSummary {
+  /** Id of the rule this KPI came from. */
+  ruleId: string;
+  /** KPI template id from the catalog (e.g. "nsv"), when the rule carries it. */
+  templateId?: string;
+  /** Display name shown in the programme's KPI breakdown. */
+  name: string;
+  /** This KPI's max payout — the programme's total is the sum across KPIs. */
+  maxEarning: number;
+}
+
 export interface Programme {
   id: string;
   name: string;
@@ -122,6 +134,20 @@ export interface Programme {
   segment: WorkingSegment;
   geography: Geography;
   period: { month: number; year: number; isQ1: boolean };
+  /** Groups the rules of one programme; the join key onto
+   *  GET /v1/programs/analytics. Absent on rules created before it existed. */
+  programId?: string;
+  /** Rule window from the engine (ISO `YYYY-MM-DD`). Drives the Active /
+   *  Scheduled / Completed categorisation on the campaigns views. */
+  effectiveFrom?: string;
+  effectiveTill?: string;
+  /** Every engine rule backing this programme — the engine stores one rule per
+   *  KPI, while the list shows one row per programme. Archiving or updating the
+   *  programme has to touch all of them. `id` is the first of these. */
+  ruleIds?: string[];
+  /** The programme's KPIs, aggregated from those rules. Empty for the demo
+   *  programmes, which describe their KPIs through the `kpis` map below. */
+  kpiSummaries?: ProgrammeKpiSummary[];
   kpis: {
     A_nsv?: KpiConfig;
     B_phasing?: KpiConfig;

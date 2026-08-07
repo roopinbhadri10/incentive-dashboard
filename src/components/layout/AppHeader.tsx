@@ -1,92 +1,71 @@
-import { useState, useEffect } from "react";
-import { Bell, Moon, Sun, MoreVertical, HelpCircle } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { PlayCircle, Plus } from "lucide-react";
 import { useTour } from "@/components/tour/TourContext";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ShimmerChip } from "@/components/ui/shimmer-chip";
 
-interface AppHeaderActionsProps {
-  dark: boolean;
-  onToggleDark: () => void;
-  /** Initials shown in the avatar bubble. */
-  initials?: string;
-  /** Omit to hide the replay-tour button. */
-  onReplayTour?: () => void;
+/** Route path → page title shown at the top-left of the header. */
+const viewTitles: Record<string, string> = {
+  "/programs": "",
+  "/create": "Create a programme",
+  "/create/wizard": "Create a programme",
+  "/clone/quick-review": "Quick clone review",
+  "/kpi-library": "KPI library",
+  "/reports": "Reports",
+  "/payout-management": "Payout management",
+  "/users": "Users list",
+  "/users-directory": "Users directory",
+  "/analytics": "Analytics",
+};
+
+interface AppHeaderProps {
+  currentView?: string;
+  onNavigate?: (view: string) => void;
 }
 
-/**
- * The header's action cluster, split out so the plugin build can portal the
- * same controls into the Salescode shell's top NavBar (see
- * src/plugin/NavBarPortal.tsx) instead of rendering our own <header>.
- * Presentational only — dark mode is owned by the caller, because standalone
- * toggles <html class="dark"> while the plugin toggles its mount wrapper.
- */
-export function AppHeaderActions({
-  dark,
-  onToggleDark,
-  initials = "RS",
-  onReplayTour,
-}: AppHeaderActionsProps) {
-  return (
-    <div className="flex items-center gap-1.5" data-tour="theme-toggle">
-      {onReplayTour && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={onReplayTour}
-              aria-label="Replay product tour"
-            >
-              <HelpCircle size={16} className="text-muted-foreground" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">Replay product tour</TooltipContent>
-        </Tooltip>
-      )}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={onToggleDark}
-            aria-label="Toggle dark mode"
-          >
-            {dark ? <Sun size={16} className="text-muted-foreground" /> : <Moon size={16} className="text-muted-foreground" />}
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">{dark ? "Light mode" : "Dark mode"}</TooltipContent>
-      </Tooltip>
-      <Bell size={18} className="text-muted-foreground cursor-pointer hover:text-foreground ml-2" />
-      <MoreVertical size={18} className="text-muted-foreground cursor-pointer hover:text-foreground" />
-      <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-xs font-semibold ml-1">
-        {initials}
-      </div>
-    </div>
-  );
-}
-
-export function AppHeader() {
-  const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
+export function AppHeader({ currentView = "/programs", onNavigate }: AppHeaderProps) {
   const { start } = useTour();
 
-  useEffect(() => {
-    if (dark) {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-  }, [dark]);
+  // Dynamic paths can't be plain map keys. The programmes list renders its own
+  // heading, so every /campaigns/:status view leaves the header title blank.
+  const title =
+    viewTitles[currentView] ??
+    (/^\/campaigns\//.test(currentView)
+      ? ""
+      : /^\/programs\/[^/]+\/analytics$/.test(currentView)
+      ? "Programme analytics"
+      : "Salescode Studio");
+  const showCreate = currentView === "/programs";
 
   return (
-    <header className="h-12 border-b border-border bg-card flex items-center justify-between px-4 shrink-0">
-      <div />
-      <AppHeaderActions
-        dark={dark}
-        onToggleDark={() => setDark((d) => !d)}
-        onReplayTour={start}
-      />
+    <header className="h-16 flex items-center justify-between px-6 shrink-0 bg-transparent">
+      <div className="flex items-center gap-4">
+        <div>
+          <h2 className="text-lg font-semibold text-foreground leading-tight">{title}</h2>
+        </div>
+        <ShimmerChip badge="LIVE" label="Incentive Engine is ready to use" className="hidden lg:inline-flex" />
+      </div>
+
+      <div className="flex items-center gap-2" data-tour="theme-toggle">
+        <button
+          onClick={start}
+          className="relative flex items-center gap-2 overflow-hidden rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:opacity-90 transition-opacity"
+        >
+          <span className="shimmer-sweep absolute inset-0 pointer-events-none" aria-hidden />
+          <PlayCircle size={16} className="relative" />
+          <span className="relative">
+            30 sec <strong className="font-semibold">Quick Guide</strong>
+          </span>
+        </button>
+
+        {showCreate && onNavigate && (
+          <button
+            onClick={() => onNavigate("/create/wizard")}
+            className="ml-1 flex items-center gap-2 rounded-full border border-primary/40 bg-card px-4 py-2 text-sm font-medium text-primary hover:bg-sidebar-accent transition-colors"
+          >
+            <Plus size={16} />
+            New programme
+          </button>
+        )}
+      </div>
     </header>
   );
 }

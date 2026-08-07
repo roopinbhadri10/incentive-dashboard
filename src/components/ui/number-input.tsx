@@ -67,7 +67,11 @@ export const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(
           if (Number.isNaN(n)) return;
           // Reject keystrokes that would exceed max rather than snapping down.
           if (max != null && n > max) return;
-          setDraft(raw);
+          // Typing into a field showing "0" would otherwise leave "04" on screen.
+          // Strip redundant leading zeros ("04" -> "4") while keeping "0", "0.5",
+          // and a bare "-" prefix intact.
+          const normalised = /^-?0[0-9]/.test(raw) ? String(n) : raw;
+          setDraft(normalised);
           onValueChange(n);
         }}
         onBlur={(e) => {

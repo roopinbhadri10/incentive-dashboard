@@ -34,14 +34,25 @@ export function syncAuthFromCookies(): void {
   }
 }
 
-/** The bearer token, without the "Bearer " prefix. '' when not yet available. */
+/**
+ * The bearer token, without the "Bearer " prefix. '' when not yet available.
+ *
+ * Reads the live cookie first so a token the parent portal sets *after* startup
+ * is picked up without a reload; localStorage is the fallback for when the
+ * cookie is gone but the startup sync captured it.
+ */
 export function getAccessToken(): string {
-  return localStorage.getItem("authToken") || "";
+  return getCookie("SALESHUB_TOKEN") || localStorage.getItem("authToken") || "";
 }
 
-/** The tenant / account id. '' when not yet available. */
+/**
+ * The tenant / account id, sourced from the parent portal's ACCOUNT_ID cookie.
+ * '' when not yet available. Same cookie-first order as `getAccessToken()` —
+ * `syncAuthFromCookies()` only runs once at startup, so relying on localStorage
+ * alone would miss a cookie that lands later in the session.
+ */
 export function getTenantId(): string {
-  return localStorage.getItem("accountId") || "";
+  return getCookie("ACCOUNT_ID") || localStorage.getItem("accountId") || "";
 }
 
 /** `Authorization` header value, normalised to include the "Bearer " prefix. */

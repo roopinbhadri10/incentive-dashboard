@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import {
@@ -427,11 +428,10 @@ function SectionEditor({
           </div>
           <div>
             <Label className="text-xs">Year</Label>
-            <Input
-              type="number"
+            <NumberInput
               value={draft.period.year}
-              onChange={(e) =>
-                onChange({ ...draft, period: { ...draft.period, year: Number(e.target.value) } })
+              onValueChange={(year) =>
+                onChange({ ...draft, period: { ...draft.period, year } })
               }
               className="h-9 mt-1 text-sm"
             />
@@ -454,10 +454,9 @@ function SectionEditor({
         </div>
         <div>
           <Label className="text-xs">Max monthly earning ₹</Label>
-          <Input
-            type="number"
+          <NumberInput
             value={draft.maxMonthlyEarning}
-            onChange={(e) => onChange({ ...draft, maxMonthlyEarning: Number(e.target.value) })}
+            onValueChange={(maxMonthlyEarning) => onChange({ ...draft, maxMonthlyEarning })}
             className="h-9 mt-1 text-sm"
           />
         </div>
@@ -651,10 +650,9 @@ function NumField({ label, value, onChange }: { label: string; value: number; on
   return (
     <div>
       <Label className="text-xs">{label}</Label>
-      <Input
-        type="number"
+      <NumberInput
         value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
+        onValueChange={onChange}
         className="h-9 mt-1 text-sm"
       />
     </div>

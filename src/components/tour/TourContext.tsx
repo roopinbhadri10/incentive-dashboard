@@ -38,10 +38,10 @@ export const TOUR_STEPS: TourStep[] = [
     placement: "right",
   },
   {
-    id: "analytics",
+    id: "nav-analytics",
     selector: '[data-tour="nav-analytics"]',
     title: "Analytics",
-    body: "Track Performance (attainment, KPIs, leaderboards) and ROI Analysis (incremental sales, payout efficiency, budget burn) in real time.",
+    body: "One place for attainment, payout to date, KPI health and per-programme detail — updated from the incentive engine.",
     view: "/programs",
     placement: "right",
   },
@@ -62,19 +62,11 @@ export const TOUR_STEPS: TourStep[] = [
     placement: "top",
   },
   {
-    id: "performance",
-    selector: '[data-tour="performance-page"]',
-    title: "Performance dashboard",
-    body: "Topline KPIs, attainment trend, KPI heatmap and rep leaderboards — everything you need for your weekly review.",
-    view: "/analytics/performance",
-    placement: "auto",
-  },
-  {
-    id: "roi",
-    selector: '[data-tour="roi-page"]',
-    title: "ROI Analysis",
-    body: "See blended ROI, payout-vs-return scatter, budget burn and a period-end forecast. Reallocate budget where it works hardest.",
-    view: "/analytics/roi",
+    id: "analytics",
+    selector: '[data-tour="analytics-page"]',
+    title: "Analytics",
+    body: "One place for everything: topline health, where people land, who the money reaches, programme detail, people and a live India map.",
+    view: "/analytics",
     placement: "auto",
   },
   {
@@ -88,13 +80,15 @@ export const TOUR_STEPS: TourStep[] = [
 ];
 
 /**
- * Steps anchored to AppSidebar, which the plugin build hides (the shell renders
- * its own sidebar). Dropped in plugin mode so every step highlights something
- * real instead of degrading to an unanchored centered card.
- * `welcome` is kept deliberately — it has no anchor to lose and reads as the
- * tour's intro dialog.
+ * Steps anchored to chrome the plugin build hides — AppSidebar (the shell
+ * renders its own) and AppHeader (its actions don't survive into the shell
+ * NavBar). Dropped in plugin mode so every step highlights something real
+ * instead of degrading to an unanchored centered card.
+ * `welcome` is kept deliberately: it reads as the tour's intro dialog and is
+ * fine centered. `analytics` is a page step (`[data-tour="analytics-page"]`),
+ * not a nav one — it stays. Its sidebar twin is `nav-analytics`.
  */
-const PLUGIN_HIDDEN_STEP_IDS = new Set(["campaigns", "create", "analytics"]);
+const PLUGIN_HIDDEN_STEP_IDS = new Set(["campaigns", "create", "nav-analytics", "theme"]);
 
 /** The step list actually driven by the provider for this build. */
 export const ACTIVE_TOUR_STEPS: TourStep[] = isPlugin
@@ -114,6 +108,19 @@ interface TourContextValue {
 }
 
 const TourContext = createContext<TourContextValue | null>(null);
+
+/** Inert fallback so consumers never crash if rendered outside the provider. */
+const NOOP_TOUR: TourContextValue = {
+  isActive: false,
+  stepIndex: 0,
+  currentStep: null,
+  start: () => {},
+  next: () => {},
+  prev: () => {},
+  skip: () => {},
+  goToStep: () => {},
+  totalSteps: TOUR_STEPS.length,
+};
 
 const STORAGE_KEY = "salescode-tour-completed";
 
@@ -203,6 +210,5 @@ export function TourProvider({ children, onNavigate }: TourProviderProps) {
 
 export function useTour() {
   const ctx = useContext(TourContext);
-  if (!ctx) throw new Error("useTour must be used within TourProvider");
-  return ctx;
+  return ctx ?? NOOP_TOUR;
 }

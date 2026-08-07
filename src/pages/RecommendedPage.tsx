@@ -21,7 +21,7 @@ export function RecommendedPage({ onSelectTemplate }: RecommendedPageProps) {
   const sorted = [...recommendedTemplates].sort((a, b) => b.avgAttainment - a.avgAttainment);
 
   return (
-    <div className="flex-1 overflow-y-auto bg-background">
+    <div className="flex-1 overflow-y-auto">
       <div className="bg-card rounded-xl mx-4 mt-4 mb-4 p-4">
         <div className="space-y-4">
           {/* Header */}

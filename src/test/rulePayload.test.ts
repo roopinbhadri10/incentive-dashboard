@@ -2,11 +2,12 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { emptyBuilder, type BuilderState } from "@/components/wizard/builderState";
 import { DEFAULT_NSV, DEFAULT_NSV_KEY_NOTES } from "@/components/kpi-library/nsvTypes";
 import { buildRulePayloads } from "@/lib/rulePayload";
-import { buildCatalog } from "@/components/kpi-library/schema/kpiCatalog";
-import { DUMMY_KPI_METAS } from "@/components/kpi-library/schema/dummyKpiConfig";
+import { getKpiCatalog } from "@/components/kpi-library/schema/kpiCatalog";
 
-const ecoBaseConfig = () =>
-  buildCatalog(DUMMY_KPI_METAS).entries.eco.defaultConfig() as Record<string, unknown>;
+// Defaults come from the catalog the API installed (setup.ts stands in for it).
+const defaultConfigFor = (id: string) => getKpiCatalog().entries[id].defaultConfig();
+
+const ecoBaseConfig = () => defaultConfigFor("eco") as Record<string, unknown>;
 
 const ECO_SLABS = [
   { count: 150, ratePerOutlet: 2 },
@@ -38,10 +39,41 @@ function sampleState(): BuilderState {
 }
 
 describe("buildRulePayloads", () => {
-  // The tenant in the payload body now comes from the parent-portal auth
-  // context (localStorage.accountId, populated by syncAuthFromCookies).
+  // The tenant in the payload body comes from the parent-portal auth context:
+  // the ACCOUNT_ID cookie, with localStorage.accountId as the fallback.
   beforeEach(() => {
     localStorage.setItem("accountId", "default");
+  });
+
+  it("takes tenantId from the ACCOUNT_ID cookie, ahead of localStorage", () => {
+    localStorage.setItem("accountId", "stale-from-localstorage");
+    document.cookie = "ACCOUNT_ID=Emami";
+    try {
+      expect(buildRulePayloads(sampleState())[0].tenantId).toBe("Emami");
+    } finally {
+      document.cookie = "ACCOUNT_ID=; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    }
+    // Cookie gone → falls back to the value captured at startup.
+    expect(buildRulePayloads(sampleState())[0].tenantId).toBe("stale-from-localstorage");
+  });
+
+  it("stamps one shared programId uuid across every rule of a programme", () => {
+    const twoKpis: BuilderState = {
+      ...sampleState(),
+      programKpis: [
+        { templateId: "nsv", instanceId: "k1", config: DEFAULT_NSV },
+        { templateId: "nsv", instanceId: "k2", config: DEFAULT_NSV },
+      ],
+    };
+    const rules = buildRulePayloads(twoKpis);
+    expect(rules).toHaveLength(2);
+    expect(rules[0].programId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    // Same programme → same id on both rules...
+    expect(rules[1].programId).toBe(rules[0].programId);
+    // ...a separate build → a distinct id.
+    expect(buildRulePayloads(twoKpis)[0].programId).not.toBe(rules[0].programId);
   });
 
   it("maps a single-KPI program onto one rule in the engine format", () => {
@@ -56,7 +88,7 @@ describe("buildRulePayloads", () => {
     expect(rule.effectiveFrom).toBe("2026-06-01");
     expect(rule.effectiveTill).toBe("2026-06-30");
     expect(rule.ruleCode).toBe("RULE-2026-06-01");
-    expect(rule.status).toBe("DRAFT");
+    expect(rule.status).toBe("APPROVED");
 
     // user_filters — who: the role (as its designation; with no role-designation
     // config loaded in tests, it falls back to the raw role name), the division
@@ -202,7 +234,7 @@ describe("buildRulePayloads", () => {
   });
 
   it("passes the ₹-per-line rate (not the computed top payout) for line-based KPIs", () => {
-    const tlsdBase = buildCatalog(DUMMY_KPI_METAS).entries.tlsd.defaultConfig() as Record<string, unknown>;
+    const tlsdBase = defaultConfigFor("tlsd") as Record<string, unknown>;
     const state = sampleState();
     state.programKpis = [
       {
@@ -345,5 +377,129 @@ describe("buildRulePayloads", () => {
     ];
     const rules = buildRulePayloads(state);
     expect(rules.map((r) => r.ruleCode)).toEqual(["RULE-2026-06-01-1", "RULE-2026-06-01-2"]);
+  });
+});
+
+describe("earning basis → ruleDefinition.ruleMappings", () => {
+  beforeEach(() => {
+    localStorage.setItem("accountId", "default");
+  });
+
+  const ecoState = (config: Record<string, unknown>): BuilderState => ({
+    ...sampleState(),
+    programKpis: [{ templateId: "eco", instanceId: "k1", config }],
+  });
+
+  it("omits ruleMappings when the KPI pays on the user's own achievement", () => {
+    const rule = buildRulePayloads(
+      ecoState({ ...ecoBaseConfig(), slabs: ECO_SLABS, role: "mr" }),
+    )[0];
+    expect(rule.ruleDefinition.ruleMappings).toBeUndefined();
+  });
+
+  it("emits ruleMappings when the basis is the juniors' average earning", () => {
+    const rule = buildRulePayloads(
+      ecoState({ ...ecoBaseConfig(), slabs: ECO_SLABS, role: "aso_ase", rateMultiplier: 1 }),
+    )[0];
+    expect(rule.ruleDefinition.ruleMappings).toEqual([
+      { childKpiId: rule.ruleDefinition.kpiId, multiplier: 1 },
+    ]);
+  });
+
+  it("carries the multiplier the user typed", () => {
+    const rule = buildRulePayloads(
+      ecoState({ ...ecoBaseConfig(), slabs: ECO_SLABS, role: "aso_ase", rateMultiplier: 3 }),
+    )[0];
+    expect(rule.ruleDefinition.ruleMappings?.[0].multiplier).toBe(3);
+  });
+
+  it("falls back to the multiplier the KPI step displays by default", () => {
+    // The input renders `rateMultiplier ?? 3`, so an untouched field must still
+    // send 3 — otherwise the payload disagrees with what the user saw.
+    const rule = buildRulePayloads(
+      ecoState({ ...ecoBaseConfig(), slabs: ECO_SLABS, role: "aso_ase" }),
+    )[0];
+    expect(rule.ruleDefinition.ruleMappings?.[0].multiplier).toBe(3);
+  });
+
+  it("emits a single tier at the threshold for a binary KPI (sub_db_billing)", () => {
+    // Binary KPIs have no curve: nothing below the threshold, the flat payout at or
+    // above it. A 0-floor tier would pay the full amount at 0% achievement.
+    const state = sampleState();
+    state.programKpis = [
+      {
+        templateId: "sub_db_billing",
+        instanceId: "k1",
+        config: defaultConfigFor("sub_db_billing"),
+      },
+    ];
+    const rd = buildRulePayloads(state)[0].ruleDefinition;
+    expect(rd.stepUpBy1Percent).toBe(false);
+    expect(rd.maxEarning).toBe(1000);
+    expect(rd.tiers).toEqual([{ min: 80, max: null, payoutType: "FIXED", payoutValue: 1000 }]);
+  });
+
+  it("scopes sub_db_billing to Sub-Distributor outlets, leaving other KPIs alone", () => {
+    // Sub-DB Billing only counts Sub-Distributor outlets, so its own rule carries an
+    // extra outlet filter on top of the programme's audience. Its sibling NSV rule in
+    // the same programme must keep the unnarrowed outlet filters.
+    const state = sampleState();
+    state.programKpis = [
+      { templateId: "nsv", instanceId: "k1", config: DEFAULT_NSV },
+      { templateId: "sub_db_billing", instanceId: "k2", config: defaultConfigFor("sub_db_billing") },
+    ];
+    const [nsvRule, subDbRule] = buildRulePayloads(state);
+
+    const outletTypeRule = { field: "outletType", op: "EQUALS", value: "SUBD" };
+    expect(subDbRule.applicabilityCriteria.outlet_filters.rules).toContainEqual(outletTypeRule);
+    // The nested KPI entity repeats the rule's scope, so it carries it too.
+    expect(subDbRule.kpiConfig.outlet_filters.rules).toContainEqual(outletTypeRule);
+    // The channel filter the audience contributed survives alongside it.
+    expect(subDbRule.applicabilityCriteria.outlet_filters.rules).toContainEqual({
+      field: "channel", op: "IN", value: ["GT", "MT"],
+    });
+
+    expect(nsvRule.applicabilityCriteria.outlet_filters.rules).not.toContainEqual(outletTypeRule);
+    expect(nsvRule.kpiConfig.outlet_filters.rules).not.toContainEqual(outletTypeRule);
+    // User filters are untouched — the narrowing is about outlets, not people.
+    expect(subDbRule.applicabilityCriteria.user_filters).toEqual(
+      nsvRule.applicabilityCriteria.user_filters,
+    );
+  });
+
+  it("scopes a gate KPI by the metric it measures, not by the rule it hangs on", () => {
+    // Gate entities are KPI entities: a Sub-DB gate counts SUBD outlets wherever it
+    // appears, while an NSV gate on the Sub-DB rule keeps the programme's outlets.
+    const state = sampleState();
+    state.programKpis = [
+      { templateId: "nsv", instanceId: "k1", config: DEFAULT_NSV },
+      { templateId: "sub_db_billing", instanceId: "k2", config: defaultConfigFor("sub_db_billing") },
+    ];
+    state.gates = [
+      {
+        id: "g1",
+        joiner: "AND",
+        consequence: { kind: "zero-all" },
+        conditions: [
+          { metricGroup: "kpi", metric: "sub_db_billing", operator: "gt", value: 80, unit: "pct" },
+          { metricGroup: "kpi", metric: "nsv", operator: "gt", value: 90, unit: "pct" },
+        ],
+      },
+    ];
+    const outletTypeRule = { field: "outletType", op: "EQUALS", value: "SUBD" };
+    // Both gates repeat on every rule; check them on the NSV rule, whose own scope
+    // carries no outletType — so anything present came from the gate's metric.
+    const [subDbGate, nsvGate] = buildRulePayloads(state)[0].gateConditions;
+    expect(subDbGate.gateKpiConfig.outlet_filters.rules).toContainEqual(outletTypeRule);
+    expect(nsvGate.gateKpiConfig.outlet_filters.rules).not.toContainEqual(outletTypeRule);
+  });
+
+  it("leaves KPIs that have no earning-basis choice untouched", () => {
+    // nsv isn't role-aware, so a stray role value must not trigger a mapping.
+    const state = sampleState();
+    state.programKpis = [
+      { templateId: "nsv", instanceId: "k1", config: { ...DEFAULT_NSV, role: "aso_ase" } },
+    ];
+    expect(buildRulePayloads(state)[0].ruleDefinition.ruleMappings).toBeUndefined();
   });
 });

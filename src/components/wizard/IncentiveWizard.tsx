@@ -7,14 +7,27 @@ import { AudienceV2Step, isAudienceV2Complete } from "./steps/AudienceV2Step";
 import { ProgramKpiStep } from "./steps/ProgramKpiStep";
 import { GateRulesStep } from "./steps/GateRulesStep";
 import { ReviewSimulateStep } from "./steps/ReviewSimulateStep";
-import { emptyBuilder, type BuilderState, type WizardPrefill } from "./builderState";
-import { ArrowLeft, ArrowRight, Info } from "lucide-react";
+import {
+  emptyBuilder,
+  programmeWindowLabel,
+  type BuilderState,
+  type WizardPrefill,
+} from "./builderState";
+import { ArrowLeft, ArrowRight, Check, Info, Loader2, Rocket, Save } from "lucide-react";
+import {
+  upsertDraft,
+  deleteDraft,
+  newDraftId,
+  stepName,
+  type WizardDraft,
+} from "@/lib/wizardDraftStore";
 import { useToast } from "@/hooks/use-toast";
-import { saveProgram, newProgramId, quarterForMonth } from "@/lib/programStore";
+import { saveProgram, newProgramId } from "@/lib/programStore";
 import { buildRulePayloads } from "@/lib/rulePayload";
 import { isCapInvalid } from "@/components/kpi-library/capValidation";
-import { submitRules, updateRule } from "@/lib/ruleApi";
+import { submitRules, updateRule, archiveRule } from "@/lib/ruleApi";
 import { fetchChannelNames, fetchRolePayloadValues, fetchRoleDesignations } from "@/lib/saleshubApi";
+import { friendlyMessage } from "@/lib/apiError";
 
 const TOTAL_STEPS = 5;
 const REVIEW_STEP = 5;
@@ -28,12 +41,21 @@ interface IncentiveWizardProps {
 }
 
 export function IncentiveWizard({ onBack, prefill, onPublished }: IncentiveWizardProps) {
+  const isDraft = prefill?.type === "draft";
   const startsAtReview =
     prefill?.startAtReview === true ||
     prefill?.type === "clone" ||
     prefill?.type === "template" ||
     prefill?.type === "clone-saved";
-  const [currentStep, setCurrentStep] = useState(startsAtReview ? REVIEW_STEP : 1);
+  // A resumed draft reopens on the step it was left on; everything else follows
+  // the existing clone/template → Review shortcut.
+  const initialStep =
+    isDraft && typeof prefill?.atStep === "number"
+      ? Math.min(Math.max(prefill.atStep, 1), TOTAL_STEPS)
+      : startsAtReview
+      ? REVIEW_STEP
+      : 1;
+  const [currentStep, setCurrentStep] = useState(initialStep);
   // Once the user has landed on / visited the review step, navigating away from
   // it (via stepper or section-edit pencil) swaps the footer "Next" CTA for a
   // "Back to review" CTA so the user doesn't have to walk the full flow again.
@@ -46,6 +68,70 @@ export function IncentiveWizard({ onBack, prefill, onPublished }: IncentiveWizar
   });
   const { toast } = useToast();
   const publishingRef = useRef(false);
+
+  // Stable draft id for this wizard session — resumed drafts keep their id so
+  // autosave updates the same entry instead of piling up duplicates.
+  const draftIdRef = useRef<string>(
+    isDraft && prefill?.draftId ? prefill.draftId : newDraftId(),
+  );
+  // Once published, autosave stops so a finished programme can't be resurrected
+  // as a draft.
+  const publishedRef = useRef(false);
+
+  const snapshotDraft = (): WizardDraft => ({
+    id: draftIdRef.current,
+    name: state.basics.name?.trim() || "Untitled programme",
+    atStep: currentStep,
+    builder: state,
+    updatedAt: new Date().toISOString(),
+  });
+
+  // Has the user actually authored anything worth keeping? Opening the wizard
+  // alone mutates state (channels arrive from SalesHub on mount), so without
+  // this an untouched visit would leave an "Untitled programme" draft behind.
+  // A resumed draft always keeps saving — it already exists.
+  const hasAuthoredContent =
+    isDraft ||
+    !!state.basics.name.trim() ||
+    !!state.audience.division ||
+    state.audience.roles.length > 0 ||
+    state.audience.geographies.length > 0 ||
+    state.programKpis.length > 0 ||
+    state.gates.length > 0;
+
+  // Subtle auto-save indicator. Any change to the builder or step flips to
+  // "saving", then persists and settles to "saved" after a short debounce.
+  // Skips the very first render so simply opening the wizard doesn't create a
+  // draft before the user has typed anything.
+  const [saveStatus, setSaveStatus] = useState<"saved" | "saving">("saved");
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    if (!hasAuthoredContent) return;
+    setSaveStatus("saving");
+    const t = setTimeout(() => {
+      if (!publishedRef.current) upsertDraft(snapshotDraft());
+      setSaveStatus("saved");
+    }, 600);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, currentStep, hasAuthoredContent]);
+
+  const saveAndExit = () => {
+    if (hasAuthoredContent) {
+      upsertDraft(snapshotDraft());
+      toast({
+        title: "Draft saved",
+        description: `Pick up from ${stepName(currentStep)} anytime from Programmes.`,
+      });
+    } else {
+      toast({ title: "Nothing to save yet", description: "Add some details first." });
+    }
+    onBack?.();
+  };
 
   // Fetch channels from SalesHub on mount. If the call fails, channels stay
   // empty — no default/fallback channels are shown.
@@ -76,7 +162,6 @@ export function IncentiveWizard({ onBack, prefill, onPublished }: IncentiveWizar
   const goLive = async () => {
     if (publishingRef.current) return;
     publishingRef.current = true;
-    const q = quarterForMonth(state.basics.month, state.basics.year);
     saveProgram({
       id: newProgramId(),
       name: state.basics.name || "Untitled programme",
@@ -85,7 +170,9 @@ export function IncentiveWizard({ onBack, prefill, onPublished }: IncentiveWizar
       geographies: state.audience.geographies,
       geographyExceptions: state.audience.geographyExceptions,
       monthYear: { month: state.basics.month, year: state.basics.year },
-      quarterLabel: q.full,
+      // The window the programme runs over, not the quarter its month sits in —
+      // ProgramDetailView renders this under a "Month" heading.
+      quarterLabel: programmeWindowLabel(state.basics),
       attainmentBasis: state.basics.attainmentBasis,
       currency: state.basics.currency,
       payoutFrequency: state.basics.payoutFrequency,
@@ -102,21 +189,35 @@ export function IncentiveWizard({ onBack, prefill, onPublished }: IncentiveWizar
       gates: state.gates,
       createdAt: new Date().toISOString(),
     });
+    // The programme now exists locally, so its draft has served its purpose.
+    // Stop autosave first so the debounce can't write it back.
+    publishedRef.current = true;
+    deleteDraft(draftIdRef.current);
     try {
       const payloads = buildRulePayloads(state);
-      const editRuleId = prefill?.editRuleId;
+      const editRuleIds = prefill?.editRuleIds ?? [];
       if (payloads.length > 0) {
-        if (editRuleId) {
-          // Editing an existing rule → PUT it in place with the first payload.
-          // Any additional KPIs added during the edit have no rule yet, so they're
-          // POSTed as new rules.
-          await updateRule(editRuleId, payloads[0]);
-          if (payloads.length > 1) await submitRules(payloads.slice(1));
+        if (editRuleIds.length) {
+          // Editing an existing programme. The engine keeps one rule per KPI, so pair
+          // the payloads with the rules the programme already has: PUT the overlap in
+          // place, POST payloads with no rule left to take (KPIs added during the
+          // edit), and archive rules with no payload left (KPIs removed) so they stop
+          // paying out. Pairing is positional — each rule is rewritten wholesale, so
+          // the end state matches the KPI list either way.
+          for (let i = 0; i < Math.min(payloads.length, editRuleIds.length); i++) {
+            await updateRule(editRuleIds[i], payloads[i]);
+          }
+          if (payloads.length > editRuleIds.length) {
+            await submitRules(payloads.slice(editRuleIds.length));
+          }
+          for (const staleId of editRuleIds.slice(payloads.length)) {
+            await archiveRule(staleId);
+          }
         } else {
           await submitRules(payloads);
         }
         toast({
-          title: editRuleId ? "✅ Programme updated!" : "🚀 Programme is live!",
+          title: editRuleIds.length ? "✅ Programme updated!" : "🚀 Programme is live!",
           description:
             payloads.length > 1
               ? `Saved to All Programs · ${payloads.length} rules sent to the incentive engine.`
@@ -128,9 +229,11 @@ export function IncentiveWizard({ onBack, prefill, onPublished }: IncentiveWizar
       // Published successfully — hand off (WizardRoute navigates to active campaigns).
       onPublished?.();
     } catch (err) {
+      // Raw backend text is for the console, never the user.
+      console.error("[publish] rule sync failed:", err);
       toast({
-        title: "Saved locally — rule sync failed",
-        description: err instanceof Error ? err.message : String(err),
+        title: "Couldn't publish to the incentive engine",
+        description: `${friendlyMessage(err, "publish this programme")} Your programme is saved and nothing is lost.`,
         variant: "destructive",
       });
     } finally {
@@ -152,8 +255,11 @@ export function IncentiveWizard({ onBack, prefill, onPublished }: IncentiveWizar
   // via `prefill.builder`. The rules-API record it's rebuilt from can't always
   // recover every field (e.g. audience division/geography), so the sequential
   // gating below would wrongly lock the user out of navigating between steps.
-  // For any prefilled flow, treat every step as reachable.
-  const prefilled = !!prefill?.builder;
+  // For those prefilled flows, treat every step as reachable.
+  //
+  // A resumed draft is exempt: it's a loss-free local snapshot of a part-built
+  // programme, so the normal completeness gating still applies to it.
+  const prefilled = !!prefill?.builder && !isDraft;
 
   // Sequential gating (first-time creation only): a step is reachable only once
   // every mandatory step before it is complete (Basics → Audience → KPIs). Gates
@@ -193,7 +299,6 @@ export function IncentiveWizard({ onBack, prefill, onPublished }: IncentiveWizar
       case 4: return <GateRulesStep value={state.gates} onChange={(v) => update("gates", v)} kpis={state.kpis} audience={state.audience} />;
       case 5: return <ReviewSimulateStep
           state={state}
-          onGoLive={goLive}
           onKpisChange={(v) => update("programKpis", v)}
           onGroupsChange={(v) => update("kpiGroups", v)}
           onJumpToAddKpi={() => { setAutoOpenAddKpi(true); goToStep(3); }}
@@ -215,44 +320,101 @@ export function IncentiveWizard({ onBack, prefill, onPublished }: IncentiveWizar
         (state.programKpis.length === 0 ||
           state.programKpis.some((k) => isCapInvalid(k.config)))));
 
+  // Publishing is gated on the same three mandatory sections the Review step
+  // reports on. The guard lives here now that Review's own publish button is
+  // gone and the footer "Go Live" CTA is the only way to publish.
+  const canPublish =
+    isBasicsComplete(state.basics) &&
+    isAudienceV2Complete(state.audience) &&
+    state.programKpis.length > 0;
+
   return (
-    <div className="flex flex-col h-full">
-      {prefill && prefill.type && (
-        <div className="bg-primary/5 border-b border-primary/20 px-6 py-2 flex items-center gap-2">
-          <Info size={14} className="text-primary" />
-          <span className="text-xs text-primary font-medium">
-            {prefill.type === "clone-saved" && `Cloned from saved programme — modify and publish`}
-            {prefill.type === "clone" && `Cloned from: ${prefill.name}`}
-            {prefill.type === "template" && `Template: ${prefill.name}`}
-          </span>
-        </div>
-      )}
-
-      <WizardStepper currentStep={currentStep} onStepClick={goToStep} maxStep={maxReachableStep} />
-
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-5xl mx-auto">{renderStep()}</div>
-      </div>
-
-      <div className="border-t border-border bg-card px-6 py-3 flex justify-between items-center shrink-0">
-        <div className="flex items-center gap-2">
-          {onBack && <Button variant="ghost" size="sm" className="text-xs" onClick={onBack}>← All Programs</Button>}
-          <Button variant="outline" size="sm" className="text-xs gap-1" disabled={currentStep === 1} onClick={() => goToStep(currentStep - 1)}>
-            <ArrowLeft size={14} /> Previous
-          </Button>
-        </div>
-        <span className="text-xs text-muted-foreground">Step {currentStep} of {TOTAL_STEPS}</span>
-        {currentStep === REVIEW_STEP ? (
-          <Button size="sm" className="text-xs gap-1" onClick={goLive}>🚀 Go Live</Button>
-        ) : reviewVisited ? (
-          <Button size="sm" className="text-xs gap-1" onClick={() => goToStep(REVIEW_STEP)} disabled={nextDisabled}>
-            Back to review <ArrowRight size={14} />
-          </Button>
-        ) : (
-          <Button size="sm" className="text-xs gap-1" onClick={() => goToStep(currentStep + 1)} disabled={nextDisabled}>
-            Next <ArrowRight size={14} />
-          </Button>
+    <div className="flex h-full flex-col overflow-hidden bg-white p-4 sm:p-5">
+      <div className="wizard-surface surface-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl">
+        {prefill && prefill.type && (
+          <div className="flex items-center gap-2 border-b border-hairline bg-sidebar-active/60 px-6 py-2.5">
+            <Info size={15} className="text-primary" />
+            <span className="text-sm text-sidebar-active-foreground">
+              {prefill.type === "clone-saved" && `Cloned from saved programme — modify and publish`}
+              {prefill.type === "clone" && `Cloned from: ${prefill.name}`}
+              {prefill.type === "template" && `Template: ${prefill.name}`}
+              {prefill.type === "draft" && `Resumed draft — picking up from ${stepName(initialStep)}`}
+            </span>
+          </div>
         )}
+
+        {/* Step navigation */}
+        <div className="border-b border-hairline">
+          <WizardStepper currentStep={currentStep} onStepClick={goToStep} maxStep={maxReachableStep} />
+        </div>
+
+        {/* Airy scrollable canvas */}
+        <div className="wizard-signal-bg relative min-h-0 flex-1 overflow-y-auto px-6 py-7">
+          <div className="relative z-10 mx-auto max-w-5xl animate-fade-in">{renderStep()}</div>
+        </div>
+
+        {/* Sticky action bar */}
+        <div className="z-20 flex shrink-0 items-center justify-between gap-4 border-t border-hairline bg-card px-6 py-3.5">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              disabled={currentStep === 1}
+              onClick={() => goToStep(currentStep - 1)}
+            >
+              <ArrowLeft size={15} /> Previous
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5"
+              onClick={saveAndExit}
+              title="Save draft and exit — resume from this step later"
+            >
+              <Save size={15} /> Save &amp; exit
+            </Button>
+            {onBack && (
+              <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={onBack}>
+                All programmes
+              </Button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span>Step {currentStep} of {TOTAL_STEPS}</span>
+            <span aria-hidden className="h-3 w-px bg-border" />
+            {saveStatus === "saving" ? (
+              <span className="inline-flex items-center gap-1">
+                <Loader2 size={12} className="animate-spin" /> Saving…
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1">
+                <Check size={12} className="text-primary" /> Draft saved
+              </span>
+            )}
+          </div>
+
+          {currentStep === REVIEW_STEP ? (
+            <Button
+              size="sm"
+              className="gap-1.5"
+              onClick={goLive}
+              disabled={!canPublish}
+              title={canPublish ? undefined : "Complete Basics, Audience and KPIs first"}
+            >
+              <Rocket size={15} /> Go Live
+            </Button>
+          ) : reviewVisited ? (
+            <Button size="sm" className="gap-1.5" onClick={() => goToStep(REVIEW_STEP)} disabled={nextDisabled}>
+              Back to review <ArrowRight size={15} />
+            </Button>
+          ) : (
+            <Button size="sm" className="gap-1.5" onClick={() => goToStep(currentStep + 1)} disabled={nextDisabled}>
+              Next <ArrowRight size={15} />
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );

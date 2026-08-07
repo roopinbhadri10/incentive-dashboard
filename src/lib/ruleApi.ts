@@ -1,14 +1,14 @@
 // Thin client for the incentive rules engine (`GET` / `POST /v1/rules`).
 //
-// In dev the default endpoint is a relative path proxied by Vite to
-// https://incentive-uat.salescode.ai (see `server.proxy` in vite.config.ts),
-// which avoids browser CORS errors. Override the endpoint with
-// VITE_RULES_ENDPOINT. Tenant + auth come from the parent portal (config/auth).
+// The endpoint is derived from the one incentive base URL (see
+// config/incentiveApi), which in dev is a relative path proxied by Vite to
+// https://incentive-uat.salescode.ai to avoid browser CORS errors.
+// Tenant + auth come from the parent portal (config/auth).
 
 import type { RuleApiPayload } from "./rulePayload";
 import { getTenantId, getAuthorizationHeader } from "@/config/auth";
-
-const RULES_ENDPOINT = import.meta.env.VITE_RULES_ENDPOINT ?? "/incentive-api/v1/rules";
+import { RULES_ENDPOINT } from "@/config/incentiveApi";
+import { ApiError } from "@/lib/apiError";
 
 /**
  * Headers for rules-engine calls. Tenant + auth come from the parent portal
@@ -35,7 +35,7 @@ export async function submitRule(payload: RuleApiPayload): Promise<unknown> {
 
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(`Rule API responded ${res.status}${detail ? `: ${detail}` : ""}`);
+    throw new ApiError(res.status, detail, "Rule API");
   }
   return res.json().catch(() => ({}));
 }
@@ -66,7 +66,7 @@ export async function updateRule(id: string, payload: RuleApiPayload): Promise<u
 
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(`Rule API responded ${res.status}${detail ? `: ${detail}` : ""}`);
+    throw new ApiError(res.status, detail, "Rule API");
   }
   return res.json().catch(() => ({}));
 }
@@ -84,7 +84,7 @@ export async function archiveRule(id: string): Promise<void> {
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(`Rule API responded ${res.status}${detail ? `: ${detail}` : ""}`);
+    throw new ApiError(res.status, detail, "Rule API");
   }
 }
 
@@ -92,6 +92,8 @@ export async function archiveRule(id: string): Promise<void> {
 export interface RuleRecord {
   id?: string;
   ruleId?: string;
+  /** Groups the rules of one programme; joins onto GET /v1/programs/analytics. */
+  programId?: string;
   ruleName?: string;
   ruleCode?: string;
   ruleType?: string;
@@ -120,6 +122,12 @@ export interface RuleRecord {
   }>;
   ruleDefinition?: {
     kpiCode?: string;
+    /** The KPI template this rule scores (the catalog id, e.g. "nsv"). */
+    kpiId?: string;
+    /** Display name of the KPI — the instance's custom name, else the template's. */
+    kpiName?: string;
+    /** Max payout of this KPI, as sent when the rule was published. */
+    maxEarning?: number;
     payoutType?: string;
     stepUpBy1Percent?: boolean;
     startingEarning?: number;
@@ -157,7 +165,7 @@ export async function fetchRules(): Promise<RuleRecord[]> {
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(`Rule API responded ${res.status}${detail ? `: ${detail}` : ""}`);
+    throw new ApiError(res.status, detail, "Rule API");
   }
   const data = await res.json();
   if (Array.isArray(data)) return data as RuleRecord[];

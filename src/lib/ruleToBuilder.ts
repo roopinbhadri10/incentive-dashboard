@@ -88,11 +88,16 @@ const TEMPLATE_BY_KPI_TYPE: Record<string, KpiTemplateId> = {
   TARGET_VS_ACHIEVEMENT: "nsv",
   SALES_TARGET: "nsv",
   COVERAGE: "eco",
+  EFFECTIVE_COVERAGE: "eco",
+  PRODUCTIVE_COVERAGE: "eco",
+  SALES_PHASING: "phasing",
   UNIQUE_LINE_COUNT: "tlsd",
+  LINES_SOLD: "tlsd",
   DISTRIBUTION: "tlsd",
   COLLECTION: "collection",
   PRODUCTIVITY: "pcc",
   MUST_SELL_SKU: "must_sell_sku",
+  SUB_DB_BILLING: "sub_db_billing",
   AI_RECOMMENDED_ORDER: "ai_recommended_order",
 };
 
@@ -104,6 +109,15 @@ const TAG_PREFIX: Record<string, string> = { zone: "Zone: ", state: "State: ", c
 // Region picker as a chip. Allowlisting (vs the old denylist) keeps any
 // future non-geo field out too.
 const GEO_PROPS = new Set(["zone", "state", "city", "geography"]);
+
+/**
+ * What an unrestricted rule's Region selection reads as. The forward writes NO
+ * geography filter for an all-India programme (parseGeoTags drops the catch-all
+ * tag, and narrowing every user by a literal "All India" attribute would match
+ * nobody), so "no zone/state/city rule" IS how all-India is stored — see
+ * geographiesFor.
+ */
+const ALL_INDIA = "All India";
 
 /** Geography tags (IN conditions → regions, NOT_IN → exceptions). */
 function geoTagsFor(conditions: RuleCondition[], exceptions: boolean): string[] {
@@ -117,13 +131,30 @@ function geoTagsFor(conditions: RuleCondition[], exceptions: boolean): string[] 
   return out;
 }
 
+/**
+ * The Region selection to reopen the Audience step with. A rule that carries no
+ * geographic narrowing covers the whole country, so it must come back as the
+ * explicit "All India" tag rather than an empty selection — the picker has no
+ * "unset" state, and `audienceComplete` requires at least one region, so an empty
+ * list left the cloned/edited programme stuck on Audience with the section blank.
+ */
+function geographiesFor(conditions: RuleCondition[]): string[] {
+  const tags = geoTagsFor(conditions, false);
+  return tags.length ? tags : [ALL_INDIA];
+}
+
 function channelsFor(conditions: RuleCondition[]): string[] {
   return conditions.find((c) => c.property === "channel" && c.operator !== "NOT_IN")?.values ?? [];
 }
 
 function divisionFor(conditions: RuleCondition[]): Channel | undefined {
+  // `salesOrg` is what buildRulePayloads writes; the other two are legacy field
+  // names from earlier rule shapes.
   const v = conditions.find(
-    (c) => c.property === "outletDivision" || c.property === "division"
+    (c) =>
+      c.property === "salesOrg" ||
+      c.property === "outletDivision" ||
+      c.property === "division",
   )?.values?.[0];
   return v === "CCD" || v === "HCD" ? v : undefined;
 }
@@ -179,19 +210,42 @@ export function rolesFromRule(rule: RuleRecord): string[] {
 }
 
 /**
- * Recover the exact KPI template. `kpiCode` is 1:1 with a template, so prefer it
- * (matched against the catalog's meta.kpiCode). Falls back to the lossy
- * kpiCombination → template map for older rules saved without a kpiCode
- * (kpiCombination is many-to-one, so e.g. nsv/phasing/qnsv all collapse to nsv).
+ * Recover the exact KPI template a rule scores.
+ *
+ * `ruleDefinition.kpiId` is the authority: it IS the catalog id (buildRulePayloads
+ * writes `meta.id` into it verbatim) and it is unique per KPI, so a rule that
+ * carries one needs no further guessing.
+ *
+ * A KPI *code* is NOT unique — the same string can name more than one KPI — so it
+ * can only ever be a fallback for rules with no kpiId (foreign producers, records
+ * written before kpiId existed). Two distinct traps live there:
+ *
+ *   • `ruleDefinition.kpiCode` carries the ENGINE base name (`meta.baseKpiName`,
+ *     e.g. UNIQUE_LINE_COUNT), not the catalog's own `meta.kpiCode` (LINES_SOLD),
+ *     so both namespaces have to be considered.
+ *   • Across those two namespaces codes collide: Lines Sold's base name
+ *     UNIQUE_LINE_COUNT is also ULPO's catalog kpiCode. Matching one namespace
+ *     alone silently resolved Lines Sold rules to ULPO, and taking the first hit
+ *     of many would make the answer depend on config ordering.
+ *
+ * So a code match is accepted only when it identifies exactly ONE KPI. An
+ * ambiguous code defers to the kpiCombination map — a deliberate, reviewed
+ * tie-break rather than a coin flip.
  */
 function resolveTemplateId(rule: RuleRecord): KpiTemplateId {
-  const kpiCode = rule.ruleDefinition?.kpiCode;
-  if (kpiCode) {
-    const match = Object.values(getKpiCatalog().entries).find(
-      (e) => e.meta.kpiCode === kpiCode
+  const catalog = getKpiCatalog().entries;
+
+  const kpiId = rule.ruleDefinition?.kpiId;
+  if (kpiId && catalog[kpiId]) return kpiId as KpiTemplateId;
+
+  const code = rule.ruleDefinition?.kpiCode;
+  if (code) {
+    const byCode = Object.values(catalog).filter(
+      (e) => e.meta.baseKpiName === code || e.meta.kpiCode === code,
     );
-    if (match) return match.meta.id as KpiTemplateId;
+    if (byCode.length === 1) return byCode[0].meta.id as KpiTemplateId;
   }
+
   return TEMPLATE_BY_KPI_TYPE[rule.kpiCombination ?? ""] ?? "nsv";
 }
 
@@ -347,6 +401,13 @@ function configFromTiers(
     }
   }
 
+  // Binary threshold (sub_db_billing) — the forward emits a lone tier whose `minVal`
+  // is the threshold % and whose payout is the flat amount earned at/above it.
+  if ("thresholdPct" in base && "payout" in base) {
+    const t = tiers.find((x) => (x.payout ?? 0) > 0) ?? tiers[tiers.length - 1];
+    if (t) return withExtras({ ...base, thresholdPct: t.minVal, payout: t.payout });
+  }
+
   // Lines (tlsd / dbb) — min..max lines at a per-line rate; the middle tier holds
   // [minLines, maxLines] and its payout IS the ₹-per-line rate the user typed (the
   // forward stores the rate directly, not the computed top payout).
@@ -414,7 +475,7 @@ export function ruleToBuilder(rule: RuleRecord): BuilderState {
       ...emptyBuilder.audience,
       division: divisionFor(conditions),
       roles,
-      geographies: geoTagsFor(conditions, false),
+      geographies: geographiesFor(conditions),
       geographyExceptions: geoTagsFor(conditions, true),
     },
     channels: channels.length ? channels : emptyBuilder.channels,
@@ -428,5 +489,24 @@ export function ruleToBuilder(rule: RuleRecord): BuilderState {
         ...(ui.groupIds ? { groupIds: ui.groupIds } : {}),
       },
     ],
+  };
+}
+
+/**
+ * Rebuild the wizard state for a whole programme from its rules — the engine keeps
+ * one rule per KPI, so editing or cloning a programme has to read all of them or
+ * it silently drops KPIs.
+ *
+ * The programme-level sections (basics, audience, channels, gates) are identical
+ * across the group, so they come from the first rule; each rule then contributes
+ * its own KPI, in the order the engine returned them.
+ */
+export function rulesToBuilder(rules: RuleRecord[]): BuilderState {
+  const [primary, ...rest] = rules;
+  const base = ruleToBuilder(primary);
+  if (!rest.length) return base;
+  return {
+    ...base,
+    programKpis: [...base.programKpis, ...rest.flatMap((r) => ruleToBuilder(r).programKpis)],
   };
 }

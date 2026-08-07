@@ -78,6 +78,7 @@ export type ComputeId =
   | "simpleLadder"
   | "ecoLadder"
   | "linesLadder"
+  | "binaryThreshold"
   | "aiReco";
 
 interface SectionBase {
